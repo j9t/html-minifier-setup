@@ -188,8 +188,8 @@ export function formatReport(result, { renderReason = '', color = false, verbose
   if (result.presets.length) {
     const finalMetric = result.final[metric];
     lines.push('', `Compared with HTML Minifier’s presets (${metric === 'raw' ? 'uncompressed' : metric}):`, table(result.presets.map((preset) => {
-      const share = finalMetric ? (preset.sizes[metric] / finalMetric - 1) * 100 : 0;
-      const size = preset.errors ? `fails on ${preset.errors} of ${result.pages.length}` : formatBytes(preset.sizes[metric]);
+      const share = finalMetric ? (preset.size / finalMetric - 1) * 100 : 0;
+      const size = preset.errors ? `fails on ${preset.errors} of ${result.pages.length}` : formatBytes(preset.size);
       const relative = preset.errors ? '' : Math.abs(share) < 0.05 ? 'same size' : `${Math.abs(share).toFixed(1)}% ${share > 0 ? 'larger' : 'smaller'}`;
       const rendering = preset.failing === null
         ? 'not render-checked'

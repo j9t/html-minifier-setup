@@ -94,7 +94,7 @@ describe('customize', () => {
     assert.strictEqual(conservative?.failing, 0);
     assert.strictEqual(comprehensive?.name, 'comprehensive');
     assert.strictEqual(comprehensive?.failing, 1);
-    assert.ok((comprehensive?.sizes.gzip ?? 0) > 0);
+    assert.ok((comprehensive?.size ?? 0) > 0);
   });
 
   test('Reports the viewports rendered at and whether the result looks the same', async () => {
@@ -255,12 +255,6 @@ describe('customize', () => {
     const pageB = createPage({ id: 'index.html', html: '<p>another   page,   longer</p>', resources: {} });
     const [both, onlyA, onlyB] = await Promise.all([[pageA, pageB], [pageA], [pageB]].map((list) => customize(list, { presets: false })));
     assert.strictEqual(both.baseline.raw, onlyA.baseline.raw + onlyB.baseline.raw);
-  });
-
-  test('Fails on concurrency that would render no page', async () => {
-    for (const concurrency of [0, 1.5, Number.NaN]) {
-      await assert.rejects(customize(pageHome, { concurrency }), /concurrency/i);
-    }
   });
 
   test('Doesn’t claim the configuration looks the same where render checks were inconclusive', async () => {

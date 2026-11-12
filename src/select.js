@@ -5,7 +5,7 @@
 import { minify as minifyHM, presets as PRESETS } from 'html-minifier';
 import { CANDIDATES, FALLBACKS, readSchema, unclassified } from './catalog.js';
 import { analyzePage, findHazards } from './hazards.js';
-import { measure, sizeOf, sumSizes } from './measure.js';
+import { sizeOf, sumSizes } from './measure.js';
 
 /**
  * @typedef {object} Reason
@@ -45,7 +45,7 @@ import { measure, sizeOf, sumSizes } from './measure.js';
 /**
  * @typedef {object} PresetComparison
  * @prop {string} name
- * @prop {import('./measure.js').Sizes} sizes Over the pages the preset could minify
+ * @prop {number} size Over the pages the preset could minify, by the metric
  * @prop {number | null} failing Pages rendering differently, if render-checked
  * @prop {number} errors Pages the preset couldn’t minify
  * @prop {string[]} rejected Options the preset includes that were rejected
@@ -61,7 +61,6 @@ import { measure, sizeOf, sumSizes } from './measure.js';
  * @prop {import('./render.js').Renderer | null} [renderer]
  * @prop {import('./equivalence.js').Equivalence | null} [equivalence]
  * @prop {(html: string, options: Record<string, unknown>) => Promise<string>} [minify]
- * @prop {number} [concurrency] Pages rendered at once
  * @prop {boolean} [presets] Whether to compare the result with HTML Minifier’s presets
  * @prop {{version: string, options: string[]} | null} [schema] HTML Minifier’s options, by default the installed version’s
  * @prop {(event: import('./progress.js').ProgressEvent) => void} [onProgress]
@@ -70,27 +69,6 @@ import { measure, sizeOf, sumSizes } from './measure.js';
 const MAX_RENDER_ROUNDS = 12;
 const MAX_REASONS_PER_PAGE = 2;
 const MESSAGE_RENDERS_SAME = 'Looks the same where checks were needed';
-
-/**
- * @template T, U
- * @param {T[]} items
- * @param {number} limit
- * @param {(item: T) => Promise<U>} fn
- * @returns {Promise<U[]>}
- */
-async function mapLimit(items, limit, fn) {
-  /** @type {U[]} */
-  const results = new Array(items.length);
-  let next = 0;
-  const worker = async () => {
-    while (next < items.length) {
-      const index = next++;
-      results[index] = await fn(/** @type {T} */ (items[index]));
-    }
-  };
-  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
-  return results;
-}
 
 // Lets timers run, such as a progress indicator’s, between stretches of synchronous work
 const yieldTurn = () => new Promise((resolve) => setImmediate(resolve));
@@ -118,7 +96,6 @@ export async function customize(pagesGiven, settings = {}) {
     renderer = null,
     equivalence = null,
     minify = minifyHM,
-    concurrency = 4,
     presets = true,
     schema = readSchema(),
     onProgress = () => {}
@@ -128,7 +105,6 @@ export async function customize(pagesGiven, settings = {}) {
   for (const name of [...keep, ...skip]) {
     if (!names.includes(name)) throw new Error(`Unknown option: ${name} (options that can be kept or skipped: ${names.join(', ')})`);
   }
-  if (!Number.isInteger(concurrency) || concurrency < 1) throw new Error(`Invalid concurrency: ${concurrency} (pages to render at once, at least 1)`);
 
   // By page rather than by ID, as pages from different roots may share one
   /** @type {Map<import('./pages.js').Page, Map<string, Promise<string>>>} */
@@ -149,22 +125,33 @@ export async function customize(pagesGiven, settings = {}) {
     return output;
   };
 
-  // Measured by the metric alone while selecting, as maximum compression takes its time
-  /** @type {Map<string, number>} */
+  // Measured by the metric alone but for baseline and final sizes, as compression takes its time
+  /** @type {Map<import('./measure.js').Metric, Map<string, Promise<number>>>} */
   const sizes = new Map();
-  /** @param {string} text */
-  const sizeCached = (text) => {
-    let size = sizes.get(text);
-    if (size === undefined) {
-      size = sizeOf(text, metric);
-      sizes.set(text, size);
+  /**
+   * @param {string} text
+   * @param {import('./measure.js').Metric} [by]
+   */
+  const sizeCached = (text, by = metric) => {
+    const cache = sizes.get(by) ?? new Map();
+    sizes.set(by, cache);
+    let size = cache.get(text);
+    if (!size) {
+      size = sizeOf(text, by);
+      cache.set(text, size);
     }
     return size;
   };
+  /** @param {string[]} texts */
+  const totalSize = async (texts) => (await Promise.all(texts.map((text) => sizeCached(text)))).reduce((sum, size) => sum + size, 0);
   /** @param {Record<string, unknown>} options */
-  const totalOf = async (options) => (await Promise.all(pages.map(async (page) => sizeCached(await run(page, options))))).reduce((sum, size) => sum + size, 0);
+  const totalOf = async (options) => totalSize(await Promise.all(pages.map((page) => run(page, options))));
   /** @param {Record<string, unknown>} options */
-  const sizesOf = async (options) => sumSizes(await Promise.all(pages.map(async (page) => measure(await run(page, options)))));
+  const sizesOf = async (options) => sumSizes(await Promise.all(pages.map(async (page) => {
+    const text = await run(page, options);
+    const [raw, gzip, brotli] = await Promise.all([sizeCached(text, 'raw'), sizeCached(text, 'gzip'), sizeCached(text, 'brotli')]);
+    return { raw, gzip, brotli };
+  })));
 
   /** @type {Set<string>} */
   const notes = new Set();
@@ -236,7 +223,8 @@ export async function customize(pagesGiven, settings = {}) {
         reasons.push({ level: 'error', page: page.id, message: `Minification failed: ${messageOf(err)}` });
         continue;
       }
-      savings += sizeCached(outBefore) - sizeCached(outAfter);
+      const [sizeBefore, sizeAfter] = await Promise.all([sizeCached(outBefore), sizeCached(outAfter)]);
+      savings += sizeBefore - sizeAfter;
       if (outBefore === outAfter) continue;
       changed = true;
       const context = /** @type {import('./hazards.js').PageContext} */ (contexts.get(page));
@@ -337,18 +325,18 @@ export async function customize(pagesGiven, settings = {}) {
     /**
      * @param {import('./pages.js').Page[]} subset
      * @param {Record<string, unknown>} options
-     * @param {{detail: string, offset?: number, total?: number}} step Where this is in the current stage
+     * @param {{detail: string, counter?: {done: number}, total?: number}} step Where this is in the current stage, whose renders `counter` counts
      * @returns {Promise<{failures: {page: import('./pages.js').Page, verdict: import('./render.js').Verdict}[], inconclusive: Set<string>}>}
      */
-    const failingPages = async (subset, options, { detail, offset = 0, total = subset.length }) => {
-      let done = 0;
-      onProgress({ phase: 'render', detail, current: offset, total });
-      const verdicts = await mapLimit(subset, concurrency, async (page) => {
+    const failingPages = async (subset, options, { detail, counter = { done: 0 }, total = subset.length }) => {
+      onProgress({ phase: 'render', detail, current: counter.done, total });
+      // All at once, as the renderer limits how many render
+      const verdicts = await Promise.all(subset.map(async (page) => {
         const verdict = await renderer.compare(page, await run(page, options));
         for (const note of verdict.notes) notes.add(`${page.id}: ${note}`);
-        onProgress({ phase: 'render', detail, current: offset + ++done, total });
+        onProgress({ phase: 'render', detail, current: ++counter.done, total });
         return { page, verdict };
-      });
+      }));
       return {
         failures: verdicts.filter(({ verdict }) => !verdict.equal && !verdict.inconclusive),
         inconclusive: new Set(verdicts.filter(({ verdict }) => verdict.inconclusive).map(({ page }) => page.id))
@@ -365,22 +353,25 @@ export async function customize(pagesGiven, settings = {}) {
       const subset = failures.map(({ page }) => page);
       const testable = inUse().filter((evaluation) => evaluation.status === 'accepted');
 
+      const alone = { detail: `${testable.length} options alone`, counter: { done: 0 }, total: testable.length * subset.length };
+      const owns = await Promise.all(testable.map((evaluation) => failingPages(subset, { ...contextOptions(evaluation.name), ...evaluation.options }, alone)));
       /** @type {[Evaluation, Reason[]][]} */
-      const culprits = [];
-      for (const [index, evaluation] of testable.entries()) {
-        const { failures: own } = await failingPages(subset, { ...contextOptions(evaluation.name), ...evaluation.options }, { detail: `${evaluation.name} alone`, offset: index * subset.length, total: testable.length * subset.length });
-        if (own.length) culprits.push([evaluation, renderReasons(own)]);
-      }
+      const culprits = testable.flatMap((evaluation, index) => {
+        const own = owns[index]?.failures ?? [];
+        return own.length ? [/** @type {[Evaluation, Reason[]]} */ ([evaluation, renderReasons(own)])] : [];
+      });
       for (const [evaluation, reasons] of culprits) await demote(evaluation, reasons);
       if (culprits.length) continue;
 
-      // Options that only break rendering together: Keep those saving most while rendering holds
+      // Options that only break rendering together: Keep those saving most while rendering holds,
+      // which depends on order
       const kept = inUse().filter((evaluation) => evaluation.status === 'kept');
       /** @type {Evaluation[]} */
       const together = [];
-      for (const [index, evaluation] of testable.sort((a, b) => b.savings - a.savings).entries()) {
+      const counter = { done: 0 };
+      for (const evaluation of testable.sort((a, b) => b.savings - a.savings)) {
         const requirement = requirementOf(evaluation.name);
-        const { failures: own } = await failingPages(subset, combine([...kept, ...together, ...(requirement ? [/** @type {Evaluation} */ (evaluations.get(requirement))] : []), evaluation]), { detail: `${evaluation.name} added`, offset: index * subset.length, total: testable.length * subset.length });
+        const { failures: own } = await failingPages(subset, combine([...kept, ...together, ...(requirement ? [/** @type {Evaluation} */ (evaluations.get(requirement))] : []), evaluation]), { detail: `${evaluation.name} added`, counter, total: testable.length * subset.length });
         if (own.length) {
           const others = together.map((other) => `\`${other.name}\``).join(', ');
           await demote(evaluation, renderReasons(own).map((reason) => ({ ...reason, message: `${reason.message}, together with ${others || 'kept options'}` })));
@@ -441,14 +432,15 @@ export async function customize(pagesGiven, settings = {}) {
   // is settled again until no more are dropped
   while (await settleContributions() && renderer) await settleRendering();
   const options = combine(inUse());
-  const final = await sizesOf(options);
+  // Measured while presets render
+  const measuring = Promise.all([sizesOf(base), sizesOf(options)]);
 
   // 4. HTML Minifier’s presets for comparison
+  const presetsCompared = presets ? Object.entries(PRESETS) : [];
+  let presetsDone = 0;
+  onProgress({ phase: 'presets', detail: presetsCompared.map(([name]) => name).join(', '), current: 0, total: presetsCompared.length });
   /** @type {PresetComparison[]} */
-  const comparisons = [];
-  for (const [index, [name, preset]] of (presets ? Object.entries(PRESETS) : []).entries()) {
-    onProgress({ phase: 'presets', detail: name, current: index, total: Object.keys(PRESETS).length });
-    await yieldTurn();
+  const comparisons = await Promise.all(presetsCompared.map(async ([name, preset]) => {
     const optionsPreset = { ...base, ...preset };
     /** @type {{page: import('./pages.js').Page, html: string}[]} */
     const minified = [];
@@ -459,21 +451,24 @@ export async function customize(pagesGiven, settings = {}) {
       } catch {
         errors++;
       }
+      await yieldTurn();
     }
-    const verdicts = renderer ? await mapLimit(minified, concurrency, ({ page, html }) => renderer.compare(page, html)) : null;
-    comparisons.push({
+    const verdicts = renderer ? await Promise.all(minified.map(({ page, html }) => renderer.compare(page, html))) : null;
+    onProgress({ phase: 'presets', detail: name, current: ++presetsDone, total: presetsCompared.length });
+    return {
       name,
-      sizes: sumSizes(minified.map(({ html }) => measure(html))),
+      size: await totalSize(minified.map(({ html }) => html)),
       failing: verdicts ? verdicts.filter((verdict) => !verdict.equal && !verdict.inconclusive).length : null,
       errors,
       rejected: Object.keys(preset).filter((key) => /** @type {Record<string, unknown>} */ (preset)[key] && evaluations.get(key)?.status === 'rejected')
-    });
-  }
+    };
+  }));
+  const [baseline, final] = await measuring;
 
   return {
     metric,
     options,
-    baseline: await sizesOf(base),
+    baseline,
     final,
     evaluations: [...evaluations.values()],
     pages: pages.map((page) => page.id),

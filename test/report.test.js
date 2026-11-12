@@ -56,8 +56,8 @@ describe('formatReport', () => {
   test('Compares the result with presets', () => {
     const result = resultOf({ raw: 900, gzip: 400, brotli: 300 });
     result.presets = [
-      { name: 'conservative', sizes: { raw: 950, gzip: 440, brotli: 320 }, failing: 0, errors: 0, rejected: ['removeComments'] },
-      { name: 'comprehensive', sizes: { raw: 850, gzip: 380, brotli: 290 }, failing: 1, errors: 0, rejected: [] }
+      { name: 'conservative', size: 440, failing: 0, errors: 0, rejected: ['removeComments'] },
+      { name: 'comprehensive', size: 380, failing: 1, errors: 0, rejected: [] }
     ];
     const report = formatReport(result);
     assert.match(report, /conservative +440 B +10\.0% larger +looks the same; includes removeComments, which doesn’t fit/);

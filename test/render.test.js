@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createPage, loadPages } from '../src/pages.js';
-import { createRenderer, playwrightCli, serve } from '../src/render.js';
+import { createLimit, createRenderer, playwrightCli, serve } from '../src/render.js';
 
 const dirSite = path.join(path.dirname(fileURLToPath(import.meta.url)), 'fixtures', 'site');
 const { renderer, reason } = await createRenderer({ viewports: [{ width: 800, height: 600 }] });
@@ -21,6 +21,12 @@ describe('createRenderer browsers', () => {
     assert.strictEqual(found.renderer, null);
     assert.strictEqual(found.missing, true);
     assert.match(found.reason, /No browser/);
+  });
+
+  test('Fails on concurrency that would render no page', async () => {
+    for (const concurrency of [0, 1.5, Number.NaN]) {
+      await assert.rejects(createRenderer({ concurrency }), /concurrency/i);
+    }
   });
 
   test('Finds Playwright’s installer', () => {
@@ -78,6 +84,32 @@ describe('createRenderer', { skip: renderer ? false : `No browser: ${reason}` },
     assert.strictEqual(verdict.equal, true);
   });
 });
+describe('createLimit', () => {
+  test('Runs no more functions at once than allowed, in the order given, passing on results', async () => {
+    const limit = createLimit(2);
+    let active = 0;
+    let peak = 0;
+    /** @type {number[]} */
+    const started = [];
+    const results = await Promise.all([0, 1, 2, 3, 4].map((index) => limit(async () => {
+      started.push(index);
+      peak = Math.max(peak, ++active);
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      active--;
+      return index * 10;
+    })));
+    assert.strictEqual(peak, 2);
+    assert.deepStrictEqual(started, [0, 1, 2, 3, 4]);
+    assert.deepStrictEqual(results, [0, 10, 20, 30, 40]);
+  });
+
+  test('Frees the slot of functions that fail', async () => {
+    const limit = createLimit(1);
+    await assert.rejects(limit(async () => { throw new Error('Failed'); }), /Failed/);
+    assert.strictEqual(await limit(async () => 'next'), 'next');
+  });
+});
+
 describe('serve', () => {
   test('Serves files within the root, answering malformed paths and paths outside the root with client errors', async () => {
     const server = await serve(dirSite);

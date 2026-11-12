@@ -34,7 +34,7 @@ npx html-minifier --input-dir ./dist --output-dir ./dist
 | --- | --- |
 | `-c, --config-file <file>` | Start from an HTML Minifier configuration (JSON or module; defaults to html-minifier.config.json in the working directory, if present): Options on how input is read (e.g., `ignoreCustomFragments`, `caseSensitive`, `continueOnParseError`) are carried over; values for candidates (e.g., `minifyJS: {"engine": "swc"}`) are evaluated instead of `true`; and `fileExt`, `ignoreDir`, and cache sizes are kept, with `fileExt` and `ignoreDir` also applying to directories read |
 | `-o, --output [file]` | Write the configuration to a file (default: html-minifier.config.json) rather than print it |
-| `-m, --metric <metric>` | Size that decides whether an option gains: `raw`, `gzip` (default), or `brotli` |
+| `-m, --metric <metric>` | Size that decides whether an option gains: `raw`, `gzip` (default), or `brotli`, compressed as HTML Minifier measures (Gzip level 6, Brotli quality 6) |
 | `-s, --sample <count>` | Pages to evaluate at most (default: 20) |
 | `--file-ext <list>` | File extensions to read in directories, `*` for all files (default: `html,htm,shtml,shtm`, as HTML Minifier, or the configuration’s `fileExt`) |
 | `--ignore-dir <list>` | Directory names to skip (default: `node_modules`, or the configuration’s `ignoreDir`) |
@@ -44,7 +44,7 @@ npx html-minifier --input-dir ./dist --output-dir ./dist
 | `--no-equivalence` | Skip HTML Minifier’s equivalence check |
 | `--no-presets` | Skip comparing with HTML Minifier’s presets |
 | `--viewports <list>` | Viewports to render at (default: `1280x800,390x844`) |
-| `--concurrency <count>` | Pages to render at once (default: 4) |
+| `--concurrency <count>` | Pages to render at once, across viewports and options (default: 4) |
 | `--json` | Print the full result as JSON |
 | `-v, --verbose` | Show every page and viewport in details (rather than a summary with an example), more notes, and progress line by line where STDERR isn’t a terminal |
 
@@ -106,4 +106,4 @@ Options that newer versions of HTML Minifier add are evaluated once HTML Minifie
 
 Options HTML Minifier can’t express in one configuration are not evaluated: `minifyURLs` depends on each page’s URL, and `removeTagWhitespace` produces invalid HTML.
 
-Large pages take longer, especially by `brotli`, which is measured at the highest quality.
+Large pages take longer, especially by `brotli`.

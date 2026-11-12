@@ -11,7 +11,7 @@ import { loadEquivalence } from './src/equivalence.js';
 import { METRICS } from './src/measure.js';
 import { EXTENSIONS_DEFAULT, loadPages } from './src/pages.js';
 import { createProgress } from './src/progress.js';
-import { createRenderer, installChromium, VIEWPORTS_DEFAULT } from './src/render.js';
+import { CONCURRENCY_DEFAULT, createRenderer, installChromium, VIEWPORTS_DEFAULT } from './src/render.js';
 import { formatReport, toConfig, toPresetConfig } from './src/report.js';
 import { customize } from './src/select.js';
 import { CONFIG_FILE as CONFIG_FILE_DEFAULT, fetchLatestVersion, isYes, offerSetup, projectOf } from './src/setup.js';
@@ -71,7 +71,7 @@ const program = new Command()
   .option('--no-equivalence', 'Skip HTML Minifier’s equivalence check')
   .option('--no-presets', 'Skip comparing with HTML Minifier’s presets')
   .option('--viewports <list>', 'Viewports to render at', viewports, VIEWPORTS_DEFAULT)
-  .option('--concurrency <count>', 'Pages to render at once', positiveInteger, 4)
+  .option('--concurrency <count>', 'Pages to render at once', positiveInteger, CONCURRENCY_DEFAULT)
   .option('--json', 'Print the full result as JSON')
   .option('-v, --verbose', 'Show every page and viewport in details, progress line by line where STDERR isn’t a terminal, and more notes')
   .action(async (inputs, settings, command) => {
@@ -96,13 +96,13 @@ const program = new Command()
     if (!pages.length) throw new Error(`No pages found in ${inputs.join(', ')}`);
 
     if (settings.render) progress.update({ phase: 'start' });
-    let rendering = settings.render ? await createRenderer({ viewports: settings.viewports }) : { renderer: null, reason: 'skipped as asked' };
+    let rendering = settings.render ? await createRenderer({ viewports: settings.viewports, concurrency: settings.concurrency }) : { renderer: null, reason: 'skipped as asked' };
     if ('missing' in rendering && rendering.missing && interactive) {
       progress.stop({ ok: false });
       const download = await withPrompt(async (ask) => isYes(await ask('No browser found for the render check. Download Chromium (about 150 MB)? (y/N) ')));
       if (download && await installChromium()) {
         progress.update({ phase: 'start' });
-        rendering = await createRenderer({ viewports: settings.viewports });
+        rendering = await createRenderer({ viewports: settings.viewports, concurrency: settings.concurrency });
       }
     }
     const { renderer, reason } = rendering;
@@ -116,7 +116,6 @@ const program = new Command()
         skip: settings.skip,
         renderer,
         equivalence,
-        concurrency: settings.concurrency,
         presets: settings.presets,
         onProgress: progress.update
       });

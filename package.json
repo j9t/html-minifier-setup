@@ -48,6 +48,7 @@
     "url": "git+https://github.com/j9t/html-minifier-setup.git"
   },
   "scripts": {
+    "benchmark": "node benchmark/benchmark.js",
     "lint": "eslint .",
     "prepare": "git config core.hooksPath .githooks || true",
     "test": "npm run test:types && node --test \"test/**/*.test.js\"",

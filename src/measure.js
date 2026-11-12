@@ -1,4 +1,13 @@
+import { promisify } from 'node:util';
 import zlib from 'node:zlib';
+
+// As HTML Minifier measures: common defaults for on-the-fly compression (quality 11, for files
+// precompressed at build time, takes seconds per large file)
+export const GZIP_LEVEL = 6;
+export const BROTLI_QUALITY = 6;
+
+const brotliCompress = promisify(zlib.brotliCompress);
+const gzipCompress = promisify(zlib.gzip);
 
 /** @typedef {{raw: number, gzip: number, brotli: number}} Sizes */
 /** @typedef {keyof Sizes} Metric */
@@ -10,29 +19,32 @@ export const METRICS = ['raw', 'gzip', 'brotli'];
 export const SIZES_ZERO = Object.freeze({ raw: 0, gzip: 0, brotli: 0 });
 
 /**
- * Size by one metric as servers would send it, compressed at the highest level
+ * Size by one metric as servers would send it, compressed off the main thread
  * @param {string} text
  * @param {Metric} metric
- * @returns {number}
+ * @returns {Promise<number>}
  */
-export function sizeOf(text, metric) {
+export async function sizeOf(text, metric) {
   const buffer = Buffer.from(text, 'utf8');
   if (metric === 'raw') return buffer.length;
-  if (metric === 'gzip') return zlib.gzipSync(buffer, { level: 9 }).length;
-  return zlib.brotliCompressSync(buffer, {
+  if (metric === 'gzip') return (await gzipCompress(buffer, { level: GZIP_LEVEL })).length;
+  return (await brotliCompress(buffer, {
     params: {
       [zlib.constants.BROTLI_PARAM_MODE]: zlib.constants.BROTLI_MODE_TEXT,
-      [zlib.constants.BROTLI_PARAM_QUALITY]: zlib.constants.BROTLI_MAX_QUALITY,
+      [zlib.constants.BROTLI_PARAM_QUALITY]: BROTLI_QUALITY,
       [zlib.constants.BROTLI_PARAM_SIZE_HINT]: buffer.length
     }
-  }).length;
+  })).length;
 }
 
 /**
  * @param {string} text
- * @returns {Sizes}
+ * @returns {Promise<Sizes>}
  */
-export const measure = (text) => ({ raw: sizeOf(text, 'raw'), gzip: sizeOf(text, 'gzip'), brotli: sizeOf(text, 'brotli') });
+export async function measure(text) {
+  const [raw, gzip, brotli] = await Promise.all([sizeOf(text, 'raw'), sizeOf(text, 'gzip'), sizeOf(text, 'brotli')]);
+  return { raw, gzip, brotli };
+}
 
 /**
  * @param {Sizes} a

@@ -29,6 +29,8 @@ import { isInside } from './pages.js';
 /** @typedef {{width: number, height: number}} Viewport */
 /** @typedef {{shot: Buffer, text: string, errors: string[]}} Capture */
 
+export const CONCURRENCY_DEFAULT = 4;
+
 /** @type {Viewport[]} */
 export const VIEWPORTS_DEFAULT = [{ width: 1280, height: 800 }, { width: 390, height: 844 }];
 
@@ -94,10 +96,10 @@ export async function serve(root) {
  * @param {string} b
  */
 function firstDifference(a, b) {
-  const linesA = a.split('\n').map((line) => line.trim()).filter(Boolean);
-  const linesB = b.split('\n').map((line) => line.trim()).filter(Boolean);
-  const lost = linesA.find((line) => !linesB.includes(line));
-  const gained = linesB.find((line) => !linesA.includes(line));
+  const [linesA, linesB] = [a, b].map((text) => text.split('\n').map((line) => line.trim()).filter(Boolean));
+  const [setA, setB] = [new Set(linesA), new Set(linesB)];
+  const lost = linesA?.find((line) => !setB.has(line));
+  const gained = linesB?.find((line) => !setA.has(line));
   /** @param {string | undefined} line */
   const quote = (line) => line === undefined ? 'nothing' : `“${line.length > 40 ? `${line.slice(0, 39)}…` : line}”`;
   return lost === undefined && gained === undefined ? 'line breaks or spacing changed' : `${quote(lost)} became ${quote(gained)}`;
@@ -130,14 +132,48 @@ export const installChromium = () => new Promise((resolve) => {
 });
 
 /**
+ * Runs functions given no more than `limit` at a time, in the order given
+ * @param {number} limit
+ */
+export function createLimit(limit) {
+  let active = 0;
+  /** @type {(() => void)[]} */
+  const queue = [];
+  /**
+   * @template T
+   * @param {() => Promise<T>} fn
+   * @returns {Promise<T>}
+   */
+  return async (fn) => {
+    if (active < limit) {
+      active++;
+    } else {
+      await new Promise((resolve) => queue.push(() => resolve(undefined)));
+    }
+    try {
+      return await fn();
+    } finally {
+      // Hands the slot to the next in line, if any
+      const next = queue.shift();
+      if (next) {
+        next();
+      } else {
+        active--;
+      }
+    }
+  };
+}
+
+/**
  * A renderer using the first browser that starts, or, where none does, why not
- * @param {{viewports?: Viewport[], timeout?: number, browsers?: Browser[]}} [settings]
+ * @param {{viewports?: Viewport[], timeout?: number, browsers?: Browser[], concurrency?: number}} [settings] `concurrency`: pages rendered at once
  * @returns {Promise<{renderer: Renderer | null, reason: string, missing?: boolean}>}
  */
-export async function createRenderer({ viewports = VIEWPORTS_DEFAULT, timeout = 30000, browsers = BROWSERS } = {}) {
+export async function createRenderer({ viewports = VIEWPORTS_DEFAULT, timeout = 30000, browsers = BROWSERS, concurrency = CONCURRENCY_DEFAULT } = {}) {
   if (!viewports.length || viewports.some(({ width, height }) => !(width >= 1 && height >= 1))) {
     throw new Error(`Invalid viewports: ${JSON.stringify(viewports)} (at least one, each at least 1×1)`);
   }
+  if (!Number.isInteger(concurrency) || concurrency < 1) throw new Error(`Invalid concurrency: ${concurrency} (pages rendered at once, at least 1)`);
   /** @type {typeof import('playwright') | null} */
   const playwright = await import('playwright').catch(() => null);
   if (!playwright) return { renderer: null, reason: 'Playwright isn’t installed' };
@@ -162,6 +198,10 @@ export async function createRenderer({ viewports = VIEWPORTS_DEFAULT, timeout = 
   const servers = new Map();
   /** @type {WeakMap<import('./pages.js').Page, Map<string, Promise<{capture: Capture, stableShot: boolean, stableText: boolean}>>>} */
   const originals = new WeakMap();
+  /** @type {WeakMap<import('./pages.js').Page, Map<string, Promise<Verdict>>>} */
+  const verdicts = new WeakMap();
+  // Bounds all browser work, which is otherwise started at once
+  const limit = createLimit(concurrency);
 
   /** @param {import('./pages.js').Page} page */
   async function urlOf(page) {
@@ -182,25 +222,27 @@ export async function createRenderer({ viewports = VIEWPORTS_DEFAULT, timeout = 
    */
   async function capture(page, html, viewport) {
     const url = await urlOf(page);
-    const context = await browserOpen.newContext({ viewport, deviceScaleFactor: 1, reducedMotion: 'reduce' });
-    try {
-      const tab = await context.newPage();
-      /** @type {string[]} */
-      const errors = [];
-      tab.on('pageerror', (err) => errors.push(err.message));
-      tab.on('console', (message) => { if (message.type() === 'error') errors.push(message.text()); });
-      await tab.route((target) => target.href === url, (route) => route.fulfill({ status: 200, contentType: 'text/html; charset=utf-8', body: html }));
-      await tab.goto(url, { waitUntil: 'load', timeout });
-      await tab.evaluate(async () => {
-        await document.fonts?.ready;
-        await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
-      });
-      const shot = await tab.screenshot({ fullPage: true, animations: 'disabled', caret: 'hide', timeout });
-      const text = await tab.evaluate(() => document.body?.innerText ?? '');
-      return { shot, text, errors };
-    } finally {
-      await context.close();
-    }
+    return limit(async () => {
+      const context = await browserOpen.newContext({ viewport, deviceScaleFactor: 1, reducedMotion: 'reduce' });
+      try {
+        const tab = await context.newPage();
+        /** @type {string[]} */
+        const errors = [];
+        tab.on('pageerror', (err) => errors.push(err.message));
+        tab.on('console', (message) => { if (message.type() === 'error') errors.push(message.text()); });
+        await tab.route((target) => target.href === url, (route) => route.fulfill({ status: 200, contentType: 'text/html; charset=utf-8', body: html }));
+        await tab.goto(url, { waitUntil: 'load', timeout });
+        await tab.evaluate(async () => {
+          await document.fonts?.ready;
+          await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+        });
+        const shot = await tab.screenshot({ fullPage: true, animations: 'disabled', caret: 'hide', timeout });
+        const text = await tab.evaluate(() => document.body?.innerText ?? '');
+        return { shot, text, errors };
+      } finally {
+        await context.close();
+      }
+    });
   }
 
   /**
@@ -216,8 +258,7 @@ export async function createRenderer({ viewports = VIEWPORTS_DEFAULT, timeout = 
     let pending = byViewport.get(key);
     if (!pending) {
       pending = (async () => {
-        const first = await capture(page, page.html, viewport);
-        const second = await capture(page, page.html, viewport);
+        const [first, second] = await Promise.all([capture(page, page.html, viewport), capture(page, page.html, viewport)]);
         return { capture: first, stableShot: first.shot.equals(second.shot), stableText: first.text === second.text };
       })();
       byViewport.set(key, pending);
@@ -225,46 +266,66 @@ export async function createRenderer({ viewports = VIEWPORTS_DEFAULT, timeout = 
     return pending;
   }
 
+  /**
+   * @param {import('./pages.js').Page} page
+   * @param {string} html
+   * @returns {Promise<Verdict>}
+   */
+  async function compareUncached(page, html) {
+    const results = await Promise.all(viewports.map(async (viewport) => {
+      /** @type {string[]} */
+      const reasons = [];
+      /** @type {string[]} */
+      const notes = [];
+      let blind = false;
+      const at = describeViewport(viewport);
+      const [{ capture: before, stableShot, stableText }, after] = await Promise.all([original(page, viewport), capture(page, html, viewport)]);
+      if (!stableShot && !stableText) {
+        blind = true;
+        notes.push(`Looks and reads different between loads at ${at}, so only script errors were compared`);
+      } else if (!stableShot) {
+        notes.push(`Looks different between loads at ${at}, so screenshots weren’t compared`);
+      } else if (!stableText) {
+        notes.push(`Text differs between loads at ${at}, so text wasn’t compared`);
+      }
+      if (stableShot && !before.shot.equals(after.shot)) {
+        reasons.push(`Looks different at ${at}`);
+      }
+      if (stableText && before.text !== after.text) {
+        reasons.push(`Text differs at ${at}: ${firstDifference(before.text, after.text)}`);
+      }
+      const known = [...before.errors];
+      for (const error of after.errors) {
+        const index = known.indexOf(error);
+        if (index === -1) {
+          reasons.push(`New script error at ${at}: ${error.split('\n')[0]?.slice(0, 120)}`);
+        } else {
+          known.splice(index, 1);
+        }
+      }
+      return { reasons, notes, blind };
+    }));
+    const reasons = [...new Set(results.flatMap((result) => result.reasons))];
+    const notes = [...new Set(results.flatMap((result) => result.notes))];
+    const inconclusive = results.some((result) => result.blind) && reasons.length === 0;
+    return { equal: reasons.length === 0 && !inconclusive, inconclusive, reasons, notes };
+  }
+
   return {
     reason: '',
     renderer: {
       viewports,
       browser: nameBrowser,
-      async compare(page, html) {
-        /** @type {string[]} */
-        const reasons = [];
-        /** @type {string[]} */
-        const notes = [];
-        let blind = false;
-        for (const viewport of viewports) {
-          const at = describeViewport(viewport);
-          const [{ capture: before, stableShot, stableText }, after] = await Promise.all([original(page, viewport), capture(page, html, viewport)]);
-          if (!stableShot && !stableText) {
-            blind = true;
-            notes.push(`Looks and reads different between loads at ${at}, so only script errors were compared`);
-          } else if (!stableShot) {
-            notes.push(`Looks different between loads at ${at}, so screenshots weren’t compared`);
-          } else if (!stableText) {
-            notes.push(`Text differs between loads at ${at}, so text wasn’t compared`);
-          }
-          if (stableShot && !before.shot.equals(after.shot)) {
-            reasons.push(`Looks different at ${at}`);
-          }
-          if (stableText && before.text !== after.text) {
-            reasons.push(`Text differs at ${at}: ${firstDifference(before.text, after.text)}`);
-          }
-          const known = [...before.errors];
-          for (const error of after.errors) {
-            const index = known.indexOf(error);
-            if (index === -1) {
-              reasons.push(`New script error at ${at}: ${error.split('\n')[0]?.slice(0, 120)}`);
-            } else {
-              known.splice(index, 1);
-            }
-          }
+      compare(page, html) {
+        // The same output, as different options may produce, renders the same
+        const byHtml = verdicts.get(page) ?? new Map();
+        verdicts.set(page, byHtml);
+        let verdict = byHtml.get(html);
+        if (!verdict) {
+          verdict = compareUncached(page, html);
+          byHtml.set(html, verdict);
         }
-        const inconclusive = blind && reasons.length === 0;
-        return { equal: reasons.length === 0 && !inconclusive, inconclusive, reasons: [...new Set(reasons)], notes: [...new Set(notes)] };
+        return verdict;
       },
       async close() {
         await browserOpen.close();
@@ -272,4 +333,5 @@ export async function createRenderer({ viewports = VIEWPORTS_DEFAULT, timeout = 
       }
     }
   };
+
 }
