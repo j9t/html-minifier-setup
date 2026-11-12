@@ -96,9 +96,7 @@ const program = new Command()
     const pages = await loadPages(inputs, { extensions: fromConfig('fileExt'), ignore: fromConfig('ignoreDir'), sample: settings.sample });
     if (!pages.length) throw new Error(`No pages found in ${inputs.join(', ')}`);
 
-    const links = settings.render && !settings.followLinks ? await confirmLinks(pages, fromConfig('ignoreDir'), interactive) : { follow: settings.followLinks, links: [] };
-    const followLinks = settings.render && links.follow;
-    const linksNotFollowed = links.follow ? [] : links.links;
+    const followLinks = settings.render && (settings.followLinks || (interactive && await confirmLinks(pages, fromConfig('ignoreDir'))));
     const settingsRenderer = { viewports: settings.viewports, concurrency: settings.concurrency, followLinks };
     if (settings.render) progress.update({ phase: 'start' });
     let rendering = settings.render ? await createRenderer(settingsRenderer) : { renderer: null, reason: 'skipped as asked' };
@@ -127,11 +125,11 @@ const program = new Command()
       // Sets the finished phases apart from the report
       if (progress.stop() && process.stdout.isTTY) console.log('');
       if (settings.json) {
-        console.log(JSON.stringify({ ...result, linksNotFollowed }, null, 2));
+        console.log(JSON.stringify(result, null, 2));
         return;
       }
       const color = supportsColor(process.stdout);
-      console.log(formatReport(result, { renderReason: reason, linksNotFollowed, color, verbose: settings.verbose }));
+      console.log(formatReport(result, { renderReason: reason, color, verbose: settings.verbose }));
       const config = toConfig(result, preserved);
       if (settings.output) {
         const fileOutput = settings.output === true ? CONFIG_FILE_DEFAULT : settings.output;
@@ -147,21 +145,19 @@ const program = new Command()
   });
 
 /**
- * Symbolic links outside the site to follow or not, as a page’s scripts could send on what they
- * lead to: asked where there are any, and not followed where nobody can answer
+ * Whether to follow symbolic links outside the site, as a page’s scripts could send on what they
+ * lead to: asked where any are found (the report names files not gotten either way)
  * @param {import('./src/pages.js').Page[]} pages
  * @param {string[]} ignore
- * @param {boolean} interactive
  */
-async function confirmLinks(pages, ignore, interactive) {
+async function confirmLinks(pages, ignore) {
   const roots = [...new Set(pages.flatMap(({ root }) => root ? [root] : []))];
   const links = (await Promise.all(roots.map((root) => findOutsideLinks(root, ignore)))).flat()
     .map(({ link, target }) => ({ link: path.relative(process.cwd(), link), target }));
-  if (!links.length || !interactive) return { follow: false, links };
+  if (!links.length) return false;
   progress.stop();
   const named = `${links.slice(0, 3).map(({ link, target }) => `${link} → ${target}`).join(', ')}${links.length > 3 ? `, and ${links.length - 3} more` : ''}`;
-  const follow = await withPrompt(async (ask) => isYes(await ask(`The site links to files outside it (${named}). Follow these links in the render check? Only do so for sites you trust, as their scripts could send on what the links lead to (y/N) `)));
-  return { follow, links };
+  return withPrompt(async (ask) => isYes(await ask(`The site links to files outside it (${named}). Follow these links in the render check? Only do so for sites you trust, as their scripts could send on what the links lead to (y/N) `)));
 }
 
 /**

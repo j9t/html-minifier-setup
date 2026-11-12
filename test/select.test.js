@@ -289,4 +289,20 @@ describe('customize', () => {
     assert.strictEqual(evaluation(result, 'removeComments').status, 'accepted');
     assert.ok(result.presets.every((preset) => preset.inconclusive === 1));
   });
+
+  test('Reports files the render check didn’t get, no longer finding the configuration to look the same', async () => {
+    const renderer = {
+      /** @param {import('../src/pages.js').Page} page */
+      async compare(page) {
+        return { equal: true, inconclusive: false, reasons: [], notes: [], blocked: page.id === 'poem.html' ? ['shared/poem.css'] : [] };
+      },
+      async close() {}
+    };
+    const result = await customize([...pageHome, ...pagePoem], { renderer, presets: false });
+    assert.deepStrictEqual(result.blocked, ['shared/poem.css']);
+    assert.strictEqual(result.renderedSame, false);
+    const resultServed = await customize(pageHome, { renderer, presets: false });
+    assert.deepStrictEqual(resultServed.blocked, []);
+    assert.strictEqual(resultServed.renderedSame, true);
+  });
 });

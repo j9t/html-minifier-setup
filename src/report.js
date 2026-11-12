@@ -151,33 +151,34 @@ function table(rows) {
 
 /**
  * @param {import('./select.js').Result} result
- * @param {{renderReason?: string, linksNotFollowed?: {link: string, target: string}[], color?: boolean, verbose?: boolean}} [settings]
+ * @param {{renderReason?: string, color?: boolean, verbose?: boolean}} [settings]
  * @returns {string}
  */
-export function formatReport(result, { renderReason = '', linksNotFollowed = [], color = false, verbose = false } = {}) {
+export function formatReport(result, { renderReason = '', color = false, verbose = false } = {}) {
+  const { blocked = [] } = result;
   const { metric } = result;
   const dirShared = sharedFolder(result.pages);
   const evaluations = result.evaluations.map((evaluation) => ({
     ...evaluation,
     reasons: evaluation.reasons.map((reason) => reason.page?.startsWith(dirShared) ? { ...reason, page: reason.page.slice(dirShared.length) } : reason)
-      .map((reason) => linksNotFollowed.length && reason.message === MESSAGE_RENDERS_SAME ? { ...reason, message: `${reason.message}, but without files outside the site` } : reason)
+      .map((reason) => blocked.length && reason.message === MESSAGE_RENDERS_SAME ? { ...reason, message: `${reason.message}, but without files outside the site` } : reason)
   })).sort((a, b) =>
     ORDER_STATUS.indexOf(a.status) - ORDER_STATUS.indexOf(b.status) ||
     (b.contribution ?? b.savings) - (a.contribution ?? a.savings) ||
     a.name.localeCompare(b.name));
 
   const renderedAs = `Render-checked in ${result.browser ?? 'Chromium'}${result.viewports.length ? ` at ${result.viewports.join(' and ')}` : ''}`;
-  const renderSummary = !result.renderedSame
-    ? paint('warning', `${renderedAs}: The recommended configuration may not look the same as the original pages (see notes)`, color)
-    : linksNotFollowed.length
-      ? paint('warning', `${renderedAs}: The recommended configuration may not look the same as the original pages, as files outside the site were missing`, color)
-      : `${renderedAs}: The recommended configuration looks the same as the original pages`;
+  const renderSummary = blocked.length
+    ? paint('warning', `${renderedAs}: The recommended configuration may not look the same as the original pages, as files outside the site were missing`, color)
+    : result.renderedSame
+      ? `${renderedAs}: The recommended configuration looks the same as the original pages`
+      : paint('warning', `${renderedAs}: The recommended configuration may not look the same as the original pages (see notes)`, color);
   const lines = [
     `• Evaluated ${result.pages.length} page${result.pages.length === 1 ? '' : 's'}${dirShared ? ` in ${dirShared}` : ''}, judging gains by ${metric === 'raw' ? 'uncompressed' : metric} size`,
     result.rendered
       ? `• ${renderSummary}`
       : `• Not render-checked${renderReason ? `: ${renderReason}` : ''}—options that need a render check aren’t recommended`,
-    ...result.rendered && linksNotFollowed.length ? [`• ${paint('warning', `Rendered without the files of ${linksNotFollowed.length} symbolic link${linksNotFollowed.length === 1 ? ' that leads' : 's that lead'} outside the site (${listShort(linksNotFollowed.map(({ link }) => link))}), which may change how pages look—\`--follow-links\` follows them`, color)}`] : [],
+    ...result.rendered && blocked.length ? [`• ${paint('warning', `Rendered without ${blocked.length} file${blocked.length === 1 ? '' : 's'} that symbolic links lead to outside the site (${listShort(blocked)}), which may change how pages look—\`--follow-links\` follows them`, color)}`] : [],
     result.equivalence ? `• Equivalence-checked with ${result.equivalence}` : '• Not equivalence-checked',
     '',
     table([

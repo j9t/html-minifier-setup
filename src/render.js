@@ -14,6 +14,7 @@ import { isInside } from './pages.js';
  * @prop {boolean} inconclusive Whether, at some viewport, nothing but script errors could be compared, and none differed
  * @prop {string[]} reasons Why the minified page isn’t equal
  * @prop {string[]} notes What limited the comparison
+ * @prop {string[]} [blocked] Files pages requested but didn’t get, as symbolic links lead them outside the site
  */
 
 /**
@@ -27,7 +28,7 @@ import { isInside } from './pages.js';
 /** @typedef {{name: string, channel?: string}} Browser */
 
 /** @typedef {{width: number, height: number}} Viewport */
-/** @typedef {{shot: Buffer, text: string, errors: string[]}} Capture */
+/** @typedef {{shot: Buffer, text: string, errors: string[], blocked: string[]}} Capture */
 
 export const CONCURRENCY_DEFAULT = 4;
 
@@ -86,12 +87,6 @@ async function responsive(work, limit) {
  */
 export async function serve(root, { followLinks = false } = {}) {
   const rootReal = root ? await fs.promises.realpath(root).catch(() => null) : null;
-  /** @param {string} file */
-  const read = async (file) => {
-    if (followLinks) return fs.promises.readFile(file);
-    const fileReal = await fs.promises.realpath(file);
-    return rootReal && isInside(rootReal, fileReal) ? fs.promises.readFile(fileReal) : null;
-  };
   const server = http.createServer(async (request, response) => {
     let pathname;
     try {
@@ -101,7 +96,14 @@ export async function serve(root, { followLinks = false } = {}) {
       return;
     }
     const file = root ? path.join(root, pathname.endsWith('/') ? `${pathname}index.html` : pathname) : null;
-    const body = root && file && isInside(root, file) ? await read(file).catch(() => null) : null;
+    const inside = Boolean(root && file && isInside(root, file));
+    // Forbidden rather than not found, for captures to tell what they didn’t get
+    const fileReal = inside && !followLinks ? await fs.promises.realpath(/** @type {string} */ (file)).catch(() => null) : null;
+    if (fileReal && !(rootReal && isInside(rootReal, fileReal))) {
+      response.writeHead(403).end();
+      return;
+    }
+    const body = inside && file ? await fs.promises.readFile(file).catch(() => null) : null;
     if (!body || !file) {
       response.writeHead(404).end();
       return;
@@ -262,6 +264,14 @@ export async function createRenderer({ viewports = VIEWPORTS_DEFAULT, timeout = 
         const errors = [];
         tab.on('pageerror', (err) => errors.push(err.message));
         tab.on('console', (message) => { if (message.type() === 'error') errors.push(message.text()); });
+        /** @type {string[]} */
+        const blocked = [];
+        if (!page.url) {
+          tab.on('response', (response) => {
+            const target = new URL(response.url());
+            if (response.status() === 403 && target.origin === urlRequested.origin) blocked.push(decodeURIComponent(target.pathname.slice(1)));
+          });
+        }
         await tab.route((target) => target.href === urlRequested.href, (route) => route.fulfill({ status: 200, contentType: 'text/html; charset=utf-8', body: html }));
         await tab.goto(url, { waitUntil: 'load', timeout });
         // For fonts and two frames, but not beyond the timeout, as either may never come
@@ -274,7 +284,7 @@ export async function createRenderer({ viewports = VIEWPORTS_DEFAULT, timeout = 
         }, timeout), 2 * timeout);
         const shot = await tab.screenshot({ fullPage: true, animations: 'disabled', caret: 'hide', timeout });
         const text = await responsive(tab.evaluate(() => document.body?.innerText ?? ''), timeout);
-        return { shot, text, errors };
+        return { shot, text, errors, blocked };
       } finally {
         await context.close();
       }
@@ -339,12 +349,13 @@ export async function createRenderer({ viewports = VIEWPORTS_DEFAULT, timeout = 
           known.splice(index, 1);
         }
       }
-      return { reasons, notes, blind };
+      return { reasons, notes, blind, blocked: [...before.blocked, ...after.blocked] };
     }));
     const reasons = [...new Set(results.flatMap((result) => result.reasons))];
     const notes = [...new Set(results.flatMap((result) => result.notes))];
     const inconclusive = results.some((result) => result.blind) && reasons.length === 0;
-    return { equal: reasons.length === 0 && !inconclusive, inconclusive, reasons, notes };
+    const blocked = [...new Set(results.flatMap((result) => result.blocked))].sort();
+    return { equal: reasons.length === 0 && !inconclusive, inconclusive, reasons, notes, blocked };
   }
 
   return {

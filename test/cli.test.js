@@ -153,18 +153,22 @@ describe('CLI', () => {
     }
   });
 
-  test('Lists symbolic links outside the site that the render check doesn’t follow, unless asked to', async (t) => {
-    await inDir({ 'index.html': '<!doctype html><p>a</p>' }, async (dir) => {
+  test('Lists files the render check didn’t get past symbolic links outside the site, unless asked to follow them', async (t) => {
+    await inDir({ 'index.html': '<!doctype html><link rel=stylesheet href=site.css><p>a</p>' }, async (dir) => {
       try {
         await fs.promises.symlink(path.join(dirSite, 'css', 'site.css'), path.join(dir, 'site.css'));
       } catch (err) {
         t.skip(`No symbolic links: ${err instanceof Error ? err.message : err}`);
         return;
       }
-      const blocked = await run([dir, '--no-equivalence', '--no-presets', '--json'], dir);
-      assert.deepStrictEqual(JSON.parse(blocked.stdout).linksNotFollowed, [{ link: 'site.css', target: path.join(dirSite, 'css', 'site.css') }]);
-      const followed = await run([dir, '--no-equivalence', '--no-presets', '--json', '--follow-links'], dir);
-      assert.deepStrictEqual(JSON.parse(followed.stdout).linksNotFollowed, []);
+      const blocked = JSON.parse((await run([dir, '--no-equivalence', '--no-presets', '--json'], dir)).stdout);
+      if (!blocked.rendered) {
+        t.skip('No browser');
+        return;
+      }
+      assert.deepStrictEqual(blocked.blocked, ['site.css']);
+      const followed = JSON.parse((await run([dir, '--no-equivalence', '--no-presets', '--json', '--follow-links'], dir)).stdout);
+      assert.deepStrictEqual(followed.blocked, []);
     });
   });
 

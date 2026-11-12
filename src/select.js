@@ -37,7 +37,8 @@ import { sizeOf, sumSizes } from './measure.js';
  * @prop {string | null} equivalence Source of the equivalence check, if used
  * @prop {string[]} notes
  * @prop {PresetComparison[]} presets
- * @prop {boolean} renderedSame Whether the configuration was found to look the same as the original pages
+ * @prop {boolean} renderedSame Whether the configuration was found to look the same as the original pages, with every file they requested
+ * @prop {string[]} blocked Files pages requested but the render check didn’t get, as symbolic links lead them outside the site
  * @prop {string[]} viewports Viewports rendered at, if known
  * @prop {string | null} browser Browser rendered in, if known
  */
@@ -196,6 +197,8 @@ export async function customize(pagesGiven, settings = {}) {
   /** @param {Evaluation[]} list */
   const combine = (list) => Object.assign({}, base, ...list.map((evaluation) => evaluation.options));
   const inUse = () => [...evaluations.values()].filter(isInUse);
+  /** @type {Set<string>} */
+  const blocked = new Set();
   /**
    * Compares with the renderer, taking a comparison that fails as inconclusive
    * @param {import('./pages.js').Page} page
@@ -204,7 +207,9 @@ export async function customize(pagesGiven, settings = {}) {
    */
   const compare = async (page, html) => {
     try {
-      return await /** @type {import('./render.js').Renderer} */ (renderer).compare(page, html);
+      const verdict = await /** @type {import('./render.js').Renderer} */ (renderer).compare(page, html);
+      for (const file of verdict.blocked ?? []) blocked.add(file);
+      return verdict;
     } catch (err) {
       return { equal: false, inconclusive: true, reasons: [], notes: [`Couldn’t be render-checked: ${messageOf(err)}`] };
     }
@@ -495,7 +500,8 @@ export async function customize(pagesGiven, settings = {}) {
     equivalence: equivalence?.source ?? null,
     notes: [...notes],
     presets: comparisons,
-    renderedSame: Boolean(renderer) && !renderLimitReached && !pagesUnchecked.size,
+    renderedSame: Boolean(renderer) && !renderLimitReached && !pagesUnchecked.size && !blocked.size,
+    blocked: [...blocked].sort(),
     viewports: (renderer?.viewports ?? []).map(({ width, height }) => `${width}×${height}`),
     browser: renderer?.browser ?? null
   };

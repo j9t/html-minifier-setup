@@ -100,6 +100,28 @@ describe('createRenderer', { skip: renderer ? false : `No browser: ${reason}` },
     }
   });
 
+  test('Names files it didn’t get, as symbolic links lead outside the site', async (t) => {
+    const dir = await fs.promises.realpath(await fs.promises.mkdtemp(path.join(os.tmpdir(), 'hms-blocked-')));
+    try {
+      const dirRoot = path.join(dir, 'site');
+      await fs.promises.mkdir(path.join(dir, 'shared'), { recursive: true });
+      await fs.promises.mkdir(dirRoot);
+      await fs.promises.writeFile(path.join(dir, 'shared', 'poem.css'), '.poem { white-space: pre; }');
+      await fs.promises.writeFile(path.join(dirRoot, 'index.html'), '<!doctype html><link rel=stylesheet href=shared/poem.css><p class=poem>a   b</p>');
+      try {
+        await fs.promises.symlink(path.join(dir, 'shared'), path.join(dirRoot, 'shared'), 'dir');
+      } catch (err) {
+        t.skip(`No symbolic links: ${err instanceof Error ? err.message : err}`);
+        return;
+      }
+      const [page] = await loadPages([dirRoot]);
+      const verdict = await r.compare(/** @type {import('../src/pages.js').Page} */ (page), '<!doctype html><link rel=stylesheet href=shared/poem.css><p class=poem>a b</p>');
+      assert.deepStrictEqual(verdict.blocked, ['shared/poem.css']);
+    } finally {
+      await fs.promises.rm(dir, { recursive: true, force: true });
+    }
+  });
+
   test('Ignores script errors the original has, too', async () => {
     const page = createPage({ id: 'c.html', html: '<!doctype html><p>a</p><script>nope()</script>' });
     const verdict = await r.compare(page, '<!doctype html><p>a</p><script>nope()</script>');
@@ -171,7 +193,7 @@ describe('serve', () => {
           await server.close();
         }
       }
-      assert.deepStrictEqual(statuses, [404, 200, 200, 200]);
+      assert.deepStrictEqual(statuses, [403, 200, 200, 200]);
     } finally {
       await fs.promises.rm(dir, { recursive: true, force: true });
     }
