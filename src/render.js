@@ -1,0 +1,255 @@
+// Renders pages as written and as minified in a headless browser, and compares screenshots, text,
+// and script errors—what catches CSS and scripts relying on what minification changed
+
+import { spawn } from 'node:child_process';
+import fs from 'node:fs';
+import http from 'node:http';
+import { createRequire } from 'node:module';
+import path from 'node:path';
+
+/**
+ * @typedef {object} Verdict
+ * @prop {boolean} equal
+ * @prop {string[]} reasons Why the minified page isn’t equal
+ * @prop {string[]} notes What limited the comparison
+ */
+
+/**
+ * @typedef {object} Renderer
+ * @prop {(page: import('./pages.js').Page, html: string) => Promise<Verdict>} compare
+ * @prop {() => Promise<void>} close
+ * @prop {Viewport[]} [viewports]
+ * @prop {string} [browser] Name and major version
+ */
+
+/** @typedef {{name: string, channel?: string}} Browser */
+
+/** @typedef {{width: number, height: number}} Viewport */
+/** @typedef {{shot: Buffer, text: string, errors: string[]}} Capture */
+
+/** @type {Viewport[]} */
+export const VIEWPORTS_DEFAULT = [{ width: 1280, height: 800 }, { width: 390, height: 844 }];
+
+/** @type {Record<string, string>} */
+const TYPES = {
+  '.css': 'text/css',
+  '.gif': 'image/gif',
+  '.htm': 'text/html',
+  '.html': 'text/html',
+  '.ico': 'image/x-icon',
+  '.jpeg': 'image/jpeg',
+  '.jpg': 'image/jpeg',
+  '.js': 'text/javascript',
+  '.json': 'application/json',
+  '.mjs': 'text/javascript',
+  '.png': 'image/png',
+  '.svg': 'image/svg+xml',
+  '.txt': 'text/plain',
+  '.webp': 'image/webp',
+  '.woff': 'font/woff',
+  '.woff2': 'font/woff2'
+};
+
+/** @param {Viewport} viewport */
+const describeViewport = ({ width, height }) => `${width}×${height}`;
+
+/**
+ * Serves a directory on a local port, so that pages load their resources as on the web
+ * @param {string | null} root
+ * @returns {Promise<{origin: string, close: () => Promise<void>}>}
+ */
+async function serve(root) {
+  const server = http.createServer(async (request, response) => {
+    const pathname = decodeURIComponent(new URL(request.url ?? '/', 'http://localhost').pathname);
+    const file = root ? path.join(root, pathname.endsWith('/') ? `${pathname}index.html` : pathname) : null;
+    const inside = root && file && !path.relative(root, file).startsWith('..');
+    const body = inside ? await fs.promises.readFile(file).catch(() => null) : null;
+    if (!body || !file) {
+      response.writeHead(404).end();
+      return;
+    }
+    response.writeHead(200, { 'content-type': TYPES[path.extname(file).toLowerCase()] ?? 'application/octet-stream' }).end(body);
+  });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', () => resolve(undefined)));
+  const { port } = /** @type {import('node:net').AddressInfo} */ (server.address());
+  return {
+    origin: `http://127.0.0.1:${port}`,
+    close: () => new Promise((resolve) => {
+      server.closeAllConnections();
+      server.close(() => resolve());
+    })
+  };
+}
+
+/**
+ * The first line each text has that the other lacks, as a hint at what changed
+ * @param {string} a
+ * @param {string} b
+ */
+function firstDifference(a, b) {
+  const linesA = a.split('\n').map((line) => line.trim()).filter(Boolean);
+  const linesB = b.split('\n').map((line) => line.trim()).filter(Boolean);
+  const lost = linesA.find((line) => !linesB.includes(line));
+  const gained = linesB.find((line) => !linesA.includes(line));
+  /** @param {string | undefined} line */
+  const quote = (line) => line === undefined ? 'nothing' : `“${line.length > 40 ? `${line.slice(0, 39)}…` : line}”`;
+  return lost === undefined && gained === undefined ? 'line breaks or spacing changed' : `${quote(lost)} became ${quote(gained)}`;
+}
+
+// Playwright’s Chromium, or else browsers people tend to have, as original and minified pages are
+// compared in the same browser
+/** @type {Browser[]} */
+export const BROWSERS = [{ name: 'Chromium' }, { name: 'Chrome', channel: 'chrome' }, { name: 'Edge', channel: 'msedge' }];
+
+/** The path of Playwright’s command line interface, if installed */
+export function playwrightCli() {
+  try {
+    return path.join(path.dirname(createRequire(import.meta.url).resolve('playwright/package.json')), 'cli.js');
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Downloads Playwright’s Chromium, showing the installer’s output
+ * @returns {Promise<boolean>}
+ */
+export const installChromium = () => new Promise((resolve) => {
+  const fileCli = playwrightCli();
+  if (!fileCli) return resolve(false);
+  const child = spawn(process.execPath, [fileCli, 'install', 'chromium'], { stdio: 'inherit' });
+  child.on('error', () => resolve(false));
+  child.on('close', (code) => resolve(code === 0));
+});
+
+/**
+ * A renderer using the first browser that starts, or, where none does, why not
+ * @param {{viewports?: Viewport[], timeout?: number, browsers?: Browser[]}} [settings]
+ * @returns {Promise<{renderer: Renderer | null, reason: string, missing?: boolean}>}
+ */
+export async function createRenderer({ viewports = VIEWPORTS_DEFAULT, timeout = 30000, browsers = BROWSERS } = {}) {
+  /** @type {typeof import('playwright') | null} */
+  const playwright = await import('playwright').catch(() => null);
+  if (!playwright) return { renderer: null, reason: 'Playwright isn’t installed' };
+  /** @type {import('playwright').Browser | null} */
+  let browser = null;
+  let nameBrowser = '';
+  for (const { name, channel } of browsers) {
+    try {
+      browser = await playwright.chromium.launch(channel ? { channel } : {});
+      nameBrowser = `${name} ${browser.version().split('.')[0]}`;
+      break;
+    } catch {
+      // Tries the next browser
+    }
+  }
+  if (!browser) {
+    return { renderer: null, reason: `No browser found (${browsers.map(({ name }) => name).join(', ')})—\`npx playwright install chromium\` downloads Chromium`, missing: true };
+  }
+  const browserOpen = browser;
+
+  /** @type {Map<string | null, ReturnType<typeof serve>>} */
+  const servers = new Map();
+  /** @type {Map<string, Promise<{capture: Capture, stable: boolean}>>} */
+  const originals = new Map();
+
+  /** @param {import('./pages.js').Page} page */
+  async function urlOf(page) {
+    if (page.url) return page.url;
+    let server = servers.get(page.root);
+    if (!server) {
+      server = serve(page.root);
+      servers.set(page.root, server);
+    }
+    return `${(await server).origin}/${page.id.split('/').map(encodeURIComponent).join('/')}`;
+  }
+
+  /**
+   * @param {import('./pages.js').Page} page
+   * @param {string} html
+   * @param {Viewport} viewport
+   * @returns {Promise<Capture>}
+   */
+  async function capture(page, html, viewport) {
+    const url = await urlOf(page);
+    const context = await browserOpen.newContext({ viewport, deviceScaleFactor: 1, reducedMotion: 'reduce' });
+    try {
+      const tab = await context.newPage();
+      /** @type {string[]} */
+      const errors = [];
+      tab.on('pageerror', (err) => errors.push(err.message));
+      tab.on('console', (message) => { if (message.type() === 'error') errors.push(message.text()); });
+      await tab.route((target) => target.href === url, (route) => route.fulfill({ status: 200, contentType: 'text/html; charset=utf-8', body: html }));
+      await tab.goto(url, { waitUntil: 'load', timeout });
+      await tab.evaluate(async () => {
+        await document.fonts?.ready;
+        await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      });
+      const shot = await tab.screenshot({ fullPage: true, animations: 'disabled', caret: 'hide', timeout });
+      const text = await tab.evaluate(() => document.body?.innerText ?? '');
+      return { shot, text, errors };
+    } finally {
+      await context.close();
+    }
+  }
+
+  /**
+   * Renders the original twice, as what differs between loads (e.g., animations, ads, or
+   * dates) can’t tell minification apart
+   * @param {import('./pages.js').Page} page
+   * @param {Viewport} viewport
+   */
+  function original(page, viewport) {
+    const key = `${page.url ?? page.file ?? page.id}|${describeViewport(viewport)}`;
+    let pending = originals.get(key);
+    if (!pending) {
+      pending = (async () => {
+        const first = await capture(page, page.html, viewport);
+        const second = await capture(page, page.html, viewport);
+        return { capture: first, stable: first.shot.equals(second.shot) && first.text === second.text };
+      })();
+      originals.set(key, pending);
+    }
+    return pending;
+  }
+
+  return {
+    reason: '',
+    renderer: {
+      viewports,
+      browser: nameBrowser,
+      async compare(page, html) {
+        /** @type {string[]} */
+        const reasons = [];
+        /** @type {string[]} */
+        const notes = [];
+        for (const viewport of viewports) {
+          const at = describeViewport(viewport);
+          const [{ capture: before, stable }, after] = await Promise.all([original(page, viewport), capture(page, html, viewport)]);
+          if (!stable) {
+            notes.push(`Looks different between loads at ${at}, so only text and script errors were compared`);
+          } else if (!before.shot.equals(after.shot)) {
+            reasons.push(`Looks different at ${at}`);
+          }
+          if (before.text !== after.text) {
+            reasons.push(`Text differs at ${at}: ${firstDifference(before.text, after.text)}`);
+          }
+          const known = [...before.errors];
+          for (const error of after.errors) {
+            const index = known.indexOf(error);
+            if (index === -1) {
+              reasons.push(`New script error at ${at}: ${error.split('\n')[0]?.slice(0, 120)}`);
+            } else {
+              known.splice(index, 1);
+            }
+          }
+        }
+        return { equal: reasons.length === 0, reasons: [...new Set(reasons)], notes: [...new Set(notes)] };
+      },
+      async close() {
+        await browserOpen.close();
+        await Promise.all([...servers.values()].map(async (server) => (await server).close()));
+      }
+    }
+  };
+}

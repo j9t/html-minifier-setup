@@ -1,0 +1,3 @@
+node_modules/
+!test/fixtures/site/node_modules/
+.DS_Store
