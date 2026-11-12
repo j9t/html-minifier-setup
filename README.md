@@ -2,7 +2,7 @@
 
 [![npm version](https://img.shields.io/npm/v/html-minifier-setup.svg)](https://www.npmjs.com/package/html-minifier-setup) [![Build status](https://github.com/j9t/html-minifier-setup/workflows/Tests/badge.svg)](https://github.com/j9t/html-minifier-setup/actions) [![Socket](https://badge.socket.dev/npm/package/html-minifier-setup)](https://socket.dev/npm/package/html-minifier-setup) [![GitHub Sponsors](https://badgen.net/static/Support/Open%20Source/cyan)](https://github.com/sponsors/j9t)
 
-HTML Minifier Setup (HMS) helps you find the [HTML Minifier](https://github.com/j9t/html-minifier) configuration that saves the most on your pages without changing how they render. It evaluates every option on a sample of your pages, sets aside those that don’t fit—that would change something your pages rely on—, and writes the rest as a configuration file for HTML Minifier.
+HTML Minifier Setup (HMS) helps you select the [HTML Minifier](https://www.npmjs.com/package/html-minifier) configuration that saves the most on your pages without changing how they render. It evaluates every option on a sample of your pages, sets aside those that don’t fit—i.e., that would change something your pages rely on—as well as those that save nothing, and provides a custom configuration for HTML Minifier.
 
 It also reports what each option saves, which is useful on its own: Which options pay off on your site, and which don’t?
 

@@ -56,7 +56,7 @@ async function readConfig(file) {
 
 const program = new Command()
   .name('html-minifier-setup')
-  .description('Finds the HTML Minifier configuration that saves the most on your pages without changing how they render')
+  .description('Identifies the HTML Minifier options that save the most on your pages without changing how they render')
   .version(version)
   .argument('[inputs...]', 'HTML files, directories, or URLs', ['.'])
   .option('-c, --config-file <file>', `Start from an HTML Minifier configuration (JSON or module), carrying over its input handling options (defaults to ${CONFIG_FILE_DEFAULT} in the working directory, if present)`)

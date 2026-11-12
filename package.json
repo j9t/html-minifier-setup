@@ -11,7 +11,7 @@
     "parse5": "^8.1.1",
     "playwright": "^1.65.0"
   },
-  "description": "HTML Minifier setup wizard for your pages’ best minifier configuration",
+  "description": "Configuration wizard for HTML Minifier: Identify the options that save the most on your pages without changing how they render",
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@types/node": "^26.6.6",
