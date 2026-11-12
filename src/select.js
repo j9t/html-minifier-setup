@@ -3,7 +3,7 @@
 // options that break rendering on their own or only in combination
 
 import { minify as minifyHM, presets as PRESETS } from 'html-minifier';
-import { CANDIDATES, FALLBACKS } from './catalog.js';
+import { CANDIDATES, FALLBACKS, readSchema, unclassified } from './catalog.js';
 import { analyzePage, findHazards } from './hazards.js';
 import { measure, sizeOf, sumSizes } from './measure.js';
 
@@ -63,6 +63,7 @@ import { measure, sizeOf, sumSizes } from './measure.js';
  * @prop {(html: string, options: Record<string, unknown>) => Promise<string>} [minify]
  * @prop {number} [concurrency] Pages rendered at once
  * @prop {boolean} [presets] Whether to compare the result with HTML Minifier’s presets
+ * @prop {{version: string, options: string[]} | null} [schema] HTML Minifier’s options, by default the installed version’s
  * @prop {(event: import('./progress.js').ProgressEvent) => void} [onProgress]
  */
 
@@ -119,6 +120,7 @@ export async function customize(pagesGiven, settings = {}) {
     minify = minifyHM,
     concurrency = 4,
     presets = true,
+    schema = readSchema(),
     onProgress = () => {}
   } = settings;
 
@@ -162,6 +164,8 @@ export async function customize(pagesGiven, settings = {}) {
 
   /** @type {Set<string>} */
   const notes = new Set();
+  const optionsNew = unclassified(schema?.options ?? []);
+  if (optionsNew.length) notes.add(`HTML Minifier ${schema?.version} has options this version of HTML Minifier Setup doesn’t evaluate yet: ${optionsNew.join(', ')}`);
 
   // Pages the minifier can’t read with the carried options are left out
   /** @type {import('./pages.js').Page[]} */

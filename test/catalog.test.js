@@ -1,16 +1,17 @@
 import { describe, test } from 'node:test';
 import assert from 'node:assert';
-import fs from 'node:fs';
-import { CANDIDATES, CARRIED, EXCLUDED, FALLBACKS, MODIFIERS, PRESERVED, splitConfig } from '../src/catalog.js';
-
-const schema = JSON.parse(fs.readFileSync(new URL('html-minifier.schema.json', import.meta.resolve('html-minifier/package.json')), 'utf8'));
+import { CANDIDATES, CARRIED, EXCLUDED, FALLBACKS, MODIFIERS, PRESERVED, readSchema, splitConfig, unclassified } from '../src/catalog.js';
 const names = CANDIDATES.map((candidate) => candidate.name);
 
 describe('catalog', () => {
   test('Classifies every option of the installed HTML Minifier', () => {
-    const classified = new Set([...names, ...MODIFIERS, ...CARRIED, ...PRESERVED, ...Object.keys(EXCLUDED)]);
-    const unclassified = Object.keys(schema.properties).filter((name) => !classified.has(name));
-    assert.deepStrictEqual(unclassified, [], 'New options need a place in src/catalog.js');
+    const schema = readSchema();
+    assert.ok(schema && schema.options.length > 0);
+    assert.deepStrictEqual(unclassified(schema.options), [], 'New options need a place in src/catalog.js');
+  });
+
+  test('Lists options it doesn’t classify', () => {
+    assert.deepStrictEqual(unclassified(['collapseWhitespace', 'newOption', 'fileExt']), ['newOption']);
   });
 
   test('Classifies no option twice', () => {

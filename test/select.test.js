@@ -94,6 +94,12 @@ describe('customize', () => {
     assert.deepStrictEqual(result.viewports, ['1280×800']);
   });
 
+  test('Notes options of the installed HTML Minifier it doesn’t evaluate', async () => {
+    const result = await customize(pageHome, { presets: false, schema: { version: '9.0.0', options: ['collapseWhitespace', 'newOption'] } });
+    assert.ok(result.notes.includes('HTML Minifier 9.0.0 has options this version of HTML Minifier Setup doesn’t evaluate yet: newOption'));
+    assert.ok(!(await customize(pageHome, { presets: false })).notes.some((note) => note.includes('doesn’t evaluate yet')));
+  });
+
   test('Names options presets include that were rejected', async () => {
     const result = await customize(pageApp);
     assert.ok(result.presets[0]?.rejected.includes('removeComments'));

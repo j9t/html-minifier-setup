@@ -1,5 +1,9 @@
 // How each HTML Minifier option takes part in finding a configuration; a test checks that every
-// option of the installed version has a place here
+// option of the installed version has a place here, and the report notes any that don’t
+
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 /**
  * @typedef {object} Candidate
@@ -100,6 +104,29 @@ export const EXCLUDED = {
   preset: 'candidates are evaluated one by one instead',
   removeTagWhitespace: 'produces invalid HTML'
 };
+
+const CLASSIFIED = new Set([...CANDIDATES.map((candidate) => candidate.name), ...MODIFIERS, ...CARRIED, ...PRESERVED, ...Object.keys(EXCLUDED)]);
+
+/**
+ * Options without a place here
+ * @param {string[]} options
+ */
+export const unclassified = (options) => options.filter((name) => !CLASSIFIED.has(name));
+
+/**
+ * The installed HTML Minifier’s version and options, by its schema, if readable
+ * @returns {{version: string, options: string[]} | null}
+ */
+export function readSchema() {
+  try {
+    const filePackage = fileURLToPath(import.meta.resolve('html-minifier/package.json'));
+    const { version } = JSON.parse(fs.readFileSync(filePackage, 'utf8'));
+    const schema = JSON.parse(fs.readFileSync(path.join(path.dirname(filePackage), 'html-minifier.schema.json'), 'utf8'));
+    return { version, options: Object.keys(schema.properties ?? {}) };
+  } catch {
+    return null;
+  }
+}
 
 /**
  * Splits a starting configuration into what is carried into every run, candidate values to

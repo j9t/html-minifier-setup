@@ -102,6 +102,8 @@ The checks can show that options change pages, not that they never will:
 
 Test the configuration on your site before deploying it.
 
+Options that newer versions of HTML Minifier add are evaluated once HTML Minifier Setup knows them; until then, the report names them.
+
 Options HTML Minifier can’t express in one configuration are not evaluated: `minifyURLs` depends on each page’s URL, and `removeTagWhitespace` produces invalid HTML.
 
 Large pages take longer, especially by `brotli`, which is measured at the highest quality.
