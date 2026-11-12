@@ -64,6 +64,13 @@ describe('formatReport', () => {
     assert.match(report, /comprehensive +380 B +5\.0% smaller +looks different on 1 of 1 page/);
   });
 
+  test('Qualifies preset render checks by the pages the preset could minify', () => {
+    const result = resultOf({ raw: 900, gzip: 400, brotli: 300 });
+    result.pages = ['a.html', 'b.html', 'c.html'];
+    result.presets = [{ name: 'conservative', size: 440, failing: 0, inconclusive: 0, errors: 1, rejected: [] }];
+    assert.match(formatReport(result), /conservative +fails on 1 of 3 +looks the same on the other 2 pages/);
+  });
+
   test('Reports preset render checks that were inconclusive', () => {
     const result = resultOf({ raw: 900, gzip: 400, brotli: 300 });
     result.pages = ['a.html', 'b.html', 'c.html'];

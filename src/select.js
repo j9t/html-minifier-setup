@@ -196,6 +196,19 @@ export async function customize(pagesGiven, settings = {}) {
   /** @param {Evaluation[]} list */
   const combine = (list) => Object.assign({}, base, ...list.map((evaluation) => evaluation.options));
   const inUse = () => [...evaluations.values()].filter(isInUse);
+  /**
+   * Compares with the renderer, taking a comparison that fails as inconclusive
+   * @param {import('./pages.js').Page} page
+   * @param {string} html
+   * @returns {Promise<import('./render.js').Verdict>}
+   */
+  const compare = async (page, html) => {
+    try {
+      return await /** @type {import('./render.js').Renderer} */ (renderer).compare(page, html);
+    } catch (err) {
+      return { equal: false, inconclusive: true, reasons: [], notes: [`Couldn’t be render-checked: ${messageOf(err)}`] };
+    }
+  };
   /** @param {Reason[]} reasons */
   const isBlocking = (reasons) => reasons.some((reason) => reason.level === 'risk' || reason.level === 'equivalence' || reason.level === 'error' || (reason.level === 'check' && !renderer));
 
@@ -333,7 +346,7 @@ export async function customize(pagesGiven, settings = {}) {
       onProgress({ phase: 'render', detail, current: counter.done, total });
       // All at once, as the renderer limits how many render
       const verdicts = await Promise.all(subset.map(async (page) => {
-        const verdict = await renderer.compare(page, await run(page, options));
+        const verdict = await compare(page, await run(page, options));
         for (const note of verdict.notes) notes.add(`${page.id}: ${note}`);
         onProgress({ phase: 'render', detail, current: ++counter.done, total });
         return { page, verdict };
@@ -454,7 +467,11 @@ export async function customize(pagesGiven, settings = {}) {
       }
       await yieldTurn();
     }
-    const verdicts = renderer ? await Promise.all(minified.map(({ page, html }) => renderer.compare(page, html))) : null;
+    const verdicts = renderer ? await Promise.all(minified.map(async ({ page, html }) => {
+      const verdict = await compare(page, html);
+      for (const note of verdict.notes) notes.add(`${page.id}: ${note}`);
+      return verdict;
+    })) : null;
     onProgress({ phase: 'presets', detail: name, current: ++presetsDone, total: presetsCompared.length });
     return {
       name,

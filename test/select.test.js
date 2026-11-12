@@ -273,4 +273,20 @@ describe('customize', () => {
     const withPresets = await customize(pagePoem, { renderer });
     assert.deepStrictEqual(withPresets.presets.map((preset) => [preset.failing, preset.inconclusive]), [[0, 1], [0, 1]]);
   });
+
+  test('Takes render checks that fail as inconclusive, naming the page', async () => {
+    const renderer = {
+      /** @param {import('../src/pages.js').Page} page */
+      async compare(page) {
+        if (page.id === 'poem.html') throw new Error('Navigation timeout');
+        return { equal: true, inconclusive: false, reasons: [], notes: [] };
+      },
+      async close() {}
+    };
+    const result = await customize([...pageHome, ...pagePoem], { renderer });
+    assert.strictEqual(result.renderedSame, false);
+    assert.ok(result.notes.some((note) => /^poem\.html: .*Navigation timeout/.test(note)), result.notes.join('\n'));
+    assert.strictEqual(evaluation(result, 'removeComments').status, 'accepted');
+    assert.ok(result.presets.every((preset) => preset.inconclusive === 1));
+  });
 });

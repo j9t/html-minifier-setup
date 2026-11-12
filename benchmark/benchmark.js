@@ -149,12 +149,15 @@ async function timeRun(args) {
   const rendering = args.render ? await createRenderer() : { renderer: null, reason: 'skipped as asked' };
   if (args.render && !rendering.renderer) throw new Error(`No render check: ${rendering.reason}`);
   const equivalence = await loadEquivalence();
+  // Minifying and analyzing pages comes before the first progress event
+  timer.enter('evaluate');
   try {
     await customize(pages, { renderer: rendering.renderer, equivalence, onProgress: (event) => timer.enter(event.phase) });
+    // Before the browser closes, which no phase stands for
+    return timer.stop();
   } finally {
     await rendering.renderer?.close();
   }
-  return timer.stop();
 }
 
 const gitInfo = () => {

@@ -222,6 +222,9 @@ export async function createRenderer({ viewports = VIEWPORTS_DEFAULT, timeout = 
    */
   async function capture(page, html, viewport) {
     const url = await urlOf(page);
+    // Requests leave out fragments
+    const urlRequested = new URL(url);
+    urlRequested.hash = '';
     return limit(async () => {
       const context = await browserOpen.newContext({ viewport, deviceScaleFactor: 1, reducedMotion: 'reduce' });
       try {
@@ -230,12 +233,16 @@ export async function createRenderer({ viewports = VIEWPORTS_DEFAULT, timeout = 
         const errors = [];
         tab.on('pageerror', (err) => errors.push(err.message));
         tab.on('console', (message) => { if (message.type() === 'error') errors.push(message.text()); });
-        await tab.route((target) => target.href === url, (route) => route.fulfill({ status: 200, contentType: 'text/html; charset=utf-8', body: html }));
+        await tab.route((target) => target.href === urlRequested.href, (route) => route.fulfill({ status: 200, contentType: 'text/html; charset=utf-8', body: html }));
         await tab.goto(url, { waitUntil: 'load', timeout });
-        await tab.evaluate(async () => {
-          await document.fonts?.ready;
-          await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
-        });
+        // For fonts and two frames, but not beyond the timeout, as either may never come
+        await tab.evaluate(async (wait) => {
+          const settled = (async () => {
+            await document.fonts?.ready;
+            await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+          })();
+          await Promise.race([settled, new Promise((resolve) => setTimeout(resolve, wait))]);
+        }, timeout);
         const shot = await tab.screenshot({ fullPage: true, animations: 'disabled', caret: 'hide', timeout });
         const text = await tab.evaluate(() => document.body?.innerText ?? '');
         return { shot, text, errors };

@@ -78,6 +78,17 @@ describe('createRenderer', { skip: renderer ? false : `No browser: ${reason}` },
     assert.deepStrictEqual(verdict.reasons, []);
   });
 
+  test('Renders the given markup for page URLs with fragments', async () => {
+    const server = await serve(dirSite);
+    try {
+      const page = createPage({ id: 'poem.html', html: '<!doctype html><p>Original</p>', url: `${server.origin}/poem.html#verse` });
+      const verdict = await r.compare(page, '<!doctype html><p>Something else</p>');
+      assert.strictEqual(verdict.equal, false);
+    } finally {
+      await server.close();
+    }
+  });
+
   test('Ignores script errors the original has, too', async () => {
     const page = createPage({ id: 'c.html', html: '<!doctype html><p>a</p><script>nope()</script>' });
     const verdict = await r.compare(page, '<!doctype html><p>a</p><script>nope()</script>');
