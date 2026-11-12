@@ -29,6 +29,8 @@ const RE_STRING_LITERAL = /(["'`])((?:\\.|(?!\1)[^\\\n])*)\1/g;
 const RE_WORD = /[\w-]+/g;
 const RE_ATTRIBUTE_SELECTOR = /\[\s*([\w-]+)\s*(?=[~|^$*]?=|\])/g;
 const RE_CSS_COMMENT = /\/\*[\s\S]*?\*\//g;
+// At-rules without a block, like `@import`, taking quoted strings and escapes whole
+const RE_CSS_STATEMENT = /@[\w-]+(?:\\.|"(?:\\.|[^"\\\n])*"|'(?:\\.|[^'\\\n])*'|[^{};"'\\])*;/g;
 const RE_IMPORT = /@import\s+(?:url\(\s*)?(["']?)([^"')\s;]+)\1/gi;
 const RE_ATTRIBUTE_CALL = /\b(?:get|has|remove|set|toggle)Attribute(?:NS)?\(\s*(?:[^,()]*,\s*)?["'`]([\w-]+)/g;
 const RE_WHITESPACE_KEPT = /white-space(?:-collapse)?\s*:\s*(?:pre-wrap|pre-line|pre|break-spaces|preserve-breaks|preserve-spaces|preserve)(?![\w-])/i;
@@ -128,7 +130,7 @@ function whitespaceRulesOf(css) {
   /** @type {{selector: string, text: string}[]} */
   const rules = [];
   // Without comments and statements like `@import`, which would otherwise lead the next selector
-  for (const match of css.replace(RE_CSS_COMMENT, '').replace(/@[\w-]+[^{};]*;/g, '').matchAll(/([^{}]*)\{([^{}]*)\}/g)) {
+  for (const match of css.replace(RE_CSS_COMMENT, '').replace(RE_CSS_STATEMENT, '').matchAll(/([^{}]*)\{([^{}]*)\}/g)) {
     const selector = (match[1] ?? '').trim();
     const declaration = (match[2] ?? '').match(RE_WHITESPACE_KEPT)?.[0];
     if (!declaration || selector.startsWith('@')) continue;

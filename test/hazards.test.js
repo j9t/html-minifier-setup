@@ -54,6 +54,11 @@ describe('analyzePage', () => {
     assert.deepStrictEqual([...context.attributeRefs], ['data-b']);
   });
 
+  test('Keeps statements with quoted semicolons and braces out of selectors', async () => {
+    const context = await analyze(`<style>@import url("a;b{c.css") screen; @namespace x 'd\\'e;'; @charset "f\\";g"; .poem { white-space: pre-line }</style>`);
+    assert.deepStrictEqual(context.whitespaceRules.map((rule) => rule.text), ['.poem { white-space: pre-line }']);
+  });
+
   test('Collects rules that keep whitespace, except for `pre` and `textarea` elements', async () => {
     const context = await analyze('<style>@charset "utf-8"; pre, textarea { white-space: pre } /* Verse */ .poem { white-space: pre-line }</style><p style="white-space: break-spaces">', {});
     assert.deepStrictEqual(context.whitespaceRules.map((rule) => rule.text), ['.poem { white-space: pre-line }', '[style] { white-space: break-spaces }']);
