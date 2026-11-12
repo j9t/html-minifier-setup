@@ -9,7 +9,7 @@ import { splitConfig } from './src/catalog.js';
 import { paint, supportsColor } from './src/color.js';
 import { loadEquivalence } from './src/equivalence.js';
 import { METRICS } from './src/measure.js';
-import { loadPages } from './src/pages.js';
+import { EXTENSIONS_DEFAULT, loadPages } from './src/pages.js';
 import { createProgress } from './src/progress.js';
 import { createRenderer, installChromium, VIEWPORTS_DEFAULT } from './src/render.js';
 import { formatReport, toConfig, toPresetConfig } from './src/report.js';
@@ -63,7 +63,7 @@ const program = new Command()
   .option('-o, --output [file]', `Write the configuration to a file (default: ${CONFIG_FILE_DEFAULT}) rather than print it`)
   .addOption(new Option('-m, --metric <metric>', 'Size that decides whether an option gains').choices(METRICS).default('gzip'))
   .option('-s, --sample <count>', 'Pages to evaluate at most, spread across directories', positiveInteger, 20)
-  .option('--file-ext <list>', 'File extensions to read in directories (`*` for all files)', list, ['html', 'htm'])
+  .option('--file-ext <list>', 'File extensions to read in directories (`*` for all files)', list, EXTENSIONS_DEFAULT)
   .option('--ignore-dir <list>', 'Directory names to skip', list, ['node_modules'])
   .option('--keep <list>', 'Options to recommend regardless of risks and gains', list, [])
   .option('--skip <list>', 'Options not to evaluate', list, [])

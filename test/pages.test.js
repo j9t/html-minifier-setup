@@ -1,6 +1,8 @@
 import { describe, test } from 'node:test';
 import assert from 'node:assert';
+import fs from 'node:fs';
 import http from 'node:http';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createPage, loadPages, samplePaths } from '../src/pages.js';
@@ -29,6 +31,16 @@ describe('loadPages', () => {
     assert.ok(all.some((page) => page.id === 'notes.txt'));
     const dotted = await loadPages([dirSite], { extensions: ['.HTML'] });
     assert.deepStrictEqual(dotted.map((page) => page.id).sort(), ['blog/app.html', 'index.html', 'poem.html']);
+  });
+
+  test('Reads the file extensions HTML Minifier reads by default', async () => {
+    const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'hms-pages-'));
+    try {
+      for (const name of ['a.html', 'b.htm', 'c.shtml', 'd.shtm', 'e.php']) await fs.promises.writeFile(path.join(dir, name), '<p>x');
+      assert.deepStrictEqual((await loadPages([dir])).map((page) => page.id).sort(), ['a.html', 'b.htm', 'c.shtml', 'd.shtm']);
+    } finally {
+      await fs.promises.rm(dir, { recursive: true, force: true });
+    }
   });
 
   test('Limits pages to the sample size', async () => {

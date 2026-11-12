@@ -14,6 +14,8 @@ import path from 'node:path';
 
 /** @typedef {{text: string, ref: string}} Resource `ref` tells where the resource ended up after redirects */
 
+// As HTML Minifier’s
+export const EXTENSIONS_DEFAULT = ['html', 'htm', 'shtml', 'shtm'];
 const MAX_REDIRECTS = 5;
 const RE_SCHEME = /^[a-z][\w+.-]*:|^\/\//i;
 const RE_URL_INPUT = /^https?:\/\//i;
@@ -160,7 +162,7 @@ async function walk(dir, extensions, ignore) {
  * @param {{extensions?: string[], ignore?: string[], sample?: number}} [settings]
  * @returns {Promise<Page[]>}
  */
-export async function loadPages(inputs, { extensions = ['html', 'htm'], ignore = ['node_modules'], sample = 20 } = {}) {
+export async function loadPages(inputs, { extensions = EXTENSIONS_DEFAULT, ignore = ['node_modules'], sample = 20 } = {}) {
   // As HTML Minifier reads them, with `*` for all files
   const extensionsRead = extensions.map((ext) => ext.trim().replace(/^\.+/, '').toLowerCase());
   /** @type {{file: string, root: string}[]} */

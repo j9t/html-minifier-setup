@@ -36,7 +36,7 @@ npx html-minifier --input-dir ./dist --output-dir ./dist
 | `-o, --output [file]` | Write the configuration to a file (default: html-minifier.config.json) rather than print it |
 | `-m, --metric <metric>` | Size that decides whether an option gains: `raw`, `gzip` (default), or `brotli` |
 | `-s, --sample <count>` | Pages to evaluate at most (default: 20) |
-| `--file-ext <list>` | File extensions to read in directories, `*` for all files (default: `html,htm`, or the configuration’s `fileExt`) |
+| `--file-ext <list>` | File extensions to read in directories, `*` for all files (default: `html,htm,shtml,shtm`, as HTML Minifier, or the configuration’s `fileExt`) |
 | `--ignore-dir <list>` | Directory names to skip (default: `node_modules`, or the configuration’s `ignoreDir`) |
 | `--keep <list>` | Options to recommend regardless of risks and gains |
 | `--skip <list>` | Options not to evaluate |
