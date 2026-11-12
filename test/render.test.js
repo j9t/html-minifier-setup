@@ -64,6 +64,14 @@ describe('createRenderer', { skip: renderer ? false : `No browser: ${reason}` },
     assert.match(verdict.notes.join(), /Text differs between loads/);
   });
 
+  test('Finds the comparison inconclusive where the original’s looks and text both differ between loads', async () => {
+    const page = createPage({ id: 'e.html', html: '<!doctype html><p>x</p><script>document.querySelector("p").textContent = Math.random(); document.body.style.background = `hsl(${Math.random() * 360} 50% 50%)`</script>' });
+    const verdict = await r.compare(page, '<!doctype html><h1>Something else entirely</h1>');
+    assert.strictEqual(verdict.equal, false);
+    assert.strictEqual(verdict.inconclusive, true);
+    assert.deepStrictEqual(verdict.reasons, []);
+  });
+
   test('Ignores script errors the original has, too', async () => {
     const page = createPage({ id: 'c.html', html: '<!doctype html><p>a</p><script>nope()</script>' });
     const verdict = await r.compare(page, '<!doctype html><p>a</p><script>nope()</script>');

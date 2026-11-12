@@ -37,7 +37,7 @@ import { measure, sizeOf, sumSizes } from './measure.js';
  * @prop {string | null} equivalence Source of the equivalence check, if used
  * @prop {string[]} notes
  * @prop {PresetComparison[]} presets
- * @prop {boolean} renderedSame Whether the configuration looks the same as the original pages
+ * @prop {boolean} renderedSame Whether the configuration was found to look the same as the original pages
  * @prop {string[]} viewports Viewports rendered at, if known
  * @prop {string | null} browser Browser rendered in, if known
  */
@@ -191,6 +191,9 @@ export async function customize(pagesGiven, settings = {}) {
   /** @type {Map<string, number>} */
   const variantIndex = new Map();
   let renderLimitReached = false;
+  // Pages whose last render of the options in use was inconclusive
+  /** @type {Set<string>} */
+  let pagesUnchecked = new Set();
 
   /** @param {string} name */
   const requirementOf = (name) => CANDIDATES.find((candidate) => candidate.name === name)?.requires;
@@ -285,7 +288,7 @@ export async function customize(pagesGiven, settings = {}) {
    */
   function dropDependents(evaluation) {
     for (const dependent of evaluations.values()) {
-      if (requirementOf(dependent.name) === evaluation.name && dependent.status === 'accepted') {
+      if (requirementOf(dependent.name) === evaluation.name && isInUse(dependent)) {
         dependent.status = evaluation.status;
         delete dependent.contribution;
         dependent.reasons.push({ level: 'info', message: `Needs \`${evaluation.name}\`, which is no longer in use` });
@@ -335,6 +338,7 @@ export async function customize(pagesGiven, settings = {}) {
      * @param {import('./pages.js').Page[]} subset
      * @param {Record<string, unknown>} options
      * @param {{detail: string, offset?: number, total?: number}} step Where this is in the current stage
+     * @returns {Promise<{failures: {page: import('./pages.js').Page, verdict: import('./render.js').Verdict}[], inconclusive: Set<string>}>}
      */
     const failingPages = async (subset, options, { detail, offset = 0, total = subset.length }) => {
       let done = 0;
@@ -345,14 +349,18 @@ export async function customize(pagesGiven, settings = {}) {
         onProgress({ phase: 'render', detail, current: offset + ++done, total });
         return { page, verdict };
       });
-      return verdicts.filter(({ verdict }) => !verdict.equal);
+      return {
+        failures: verdicts.filter(({ verdict }) => !verdict.equal && !verdict.inconclusive),
+        inconclusive: new Set(verdicts.filter(({ verdict }) => verdict.inconclusive).map(({ page }) => page.id))
+      };
     };
     /** @param {{page: import('./pages.js').Page, verdict: import('./render.js').Verdict}[]} failures */
     const renderReasons = (failures) => failures.flatMap(({ page, verdict }) => verdict.reasons.slice(0, MAX_REASONS_PER_PAGE).map((message) => /** @type {Reason} */ ({ level: 'render', page: page.id, message })));
 
     let round = 0;
     for (; round < MAX_RENDER_ROUNDS; round++) {
-      const failures = await failingPages(pages, combine(inUse()), { detail: `${inUse().length} options together${round ? ` (round ${round + 1})` : ''}` });
+      const { failures, inconclusive } = await failingPages(pages, combine(inUse()), { detail: `${inUse().length} options together${round ? ` (round ${round + 1})` : ''}` });
+      pagesUnchecked = inconclusive;
       if (!failures.length) break;
       const subset = failures.map(({ page }) => page);
       const testable = inUse().filter((evaluation) => evaluation.status === 'accepted');
@@ -360,7 +368,7 @@ export async function customize(pagesGiven, settings = {}) {
       /** @type {[Evaluation, Reason[]][]} */
       const culprits = [];
       for (const [index, evaluation] of testable.entries()) {
-        const own = await failingPages(subset, { ...contextOptions(evaluation.name), ...evaluation.options }, { detail: `${evaluation.name} alone`, offset: index * subset.length, total: testable.length * subset.length });
+        const { failures: own } = await failingPages(subset, { ...contextOptions(evaluation.name), ...evaluation.options }, { detail: `${evaluation.name} alone`, offset: index * subset.length, total: testable.length * subset.length });
         if (own.length) culprits.push([evaluation, renderReasons(own)]);
       }
       for (const [evaluation, reasons] of culprits) await demote(evaluation, reasons);
@@ -372,7 +380,7 @@ export async function customize(pagesGiven, settings = {}) {
       const together = [];
       for (const [index, evaluation] of testable.sort((a, b) => b.savings - a.savings).entries()) {
         const requirement = requirementOf(evaluation.name);
-        const own = await failingPages(subset, combine([...kept, ...together, ...(requirement ? [/** @type {Evaluation} */ (evaluations.get(requirement))] : []), evaluation]), { detail: `${evaluation.name} added`, offset: index * subset.length, total: testable.length * subset.length });
+        const { failures: own } = await failingPages(subset, combine([...kept, ...together, ...(requirement ? [/** @type {Evaluation} */ (evaluations.get(requirement))] : []), evaluation]), { detail: `${evaluation.name} added`, offset: index * subset.length, total: testable.length * subset.length });
         if (own.length) {
           const others = together.map((other) => `\`${other.name}\``).join(', ');
           await demote(evaluation, renderReasons(own).map((reason) => ({ ...reason, message: `${reason.message}, together with ${others || 'kept options'}` })));
@@ -386,7 +394,9 @@ export async function customize(pagesGiven, settings = {}) {
       notes.add('Rendering still differed after the maximum number of rounds; the configuration may not look the same');
     }
     for (const evaluation of inUse()) {
-      if (evaluation.reasons.some((reason) => reason.level === 'check') && !evaluation.reasons.some((reason) => reason.message === MESSAGE_RENDERS_SAME)) {
+      const checks = evaluation.reasons.filter((reason) => reason.level === 'check');
+      const settled = checks.length && !checks.some((reason) => reason.page !== undefined && pagesUnchecked.has(reason.page));
+      if (settled && !evaluation.reasons.some((reason) => reason.message === MESSAGE_RENDERS_SAME)) {
         evaluation.reasons.push({ level: 'info', message: MESSAGE_RENDERS_SAME });
       }
     }
@@ -454,7 +464,7 @@ export async function customize(pagesGiven, settings = {}) {
     comparisons.push({
       name,
       sizes: sumSizes(minified.map(({ html }) => measure(html))),
-      failing: verdicts ? verdicts.filter((verdict) => !verdict.equal).length : null,
+      failing: verdicts ? verdicts.filter((verdict) => !verdict.equal && !verdict.inconclusive).length : null,
       errors,
       rejected: Object.keys(preset).filter((key) => /** @type {Record<string, unknown>} */ (preset)[key] && evaluations.get(key)?.status === 'rejected')
     });
@@ -471,7 +481,7 @@ export async function customize(pagesGiven, settings = {}) {
     equivalence: equivalence?.source ?? null,
     notes: [...notes],
     presets: comparisons,
-    renderedSame: Boolean(renderer) && !renderLimitReached,
+    renderedSame: Boolean(renderer) && !renderLimitReached && !pagesUnchecked.size,
     viewports: (renderer?.viewports ?? []).map(({ width, height }) => `${width}×${height}`),
     browser: renderer?.browser ?? null
   };

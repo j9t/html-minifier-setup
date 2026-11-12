@@ -147,7 +147,7 @@ async function walk(dir, extensions, ignore) {
     const full = path.join(dir, entry.name);
     if (entry.isDirectory()) {
       files.push(...await walk(full, extensions, ignore));
-    } else if (entry.isFile() && extensions.includes(path.extname(entry.name).slice(1).toLowerCase())) {
+    } else if (entry.isFile() && (extensions.includes('*') || extensions.includes(path.extname(entry.name).slice(1).toLowerCase()))) {
       files.push(full);
     }
   }
@@ -161,6 +161,8 @@ async function walk(dir, extensions, ignore) {
  * @returns {Promise<Page[]>}
  */
 export async function loadPages(inputs, { extensions = ['html', 'htm'], ignore = ['node_modules'], sample = 20 } = {}) {
+  // As HTML Minifier reads them, with `*` for all files
+  const extensionsRead = extensions.map((ext) => ext.trim().replace(/^\.+/, '').toLowerCase());
   /** @type {{file: string, root: string}[]} */
   const files = [];
   /** @type {string[]} */
@@ -174,7 +176,7 @@ export async function loadPages(inputs, { extensions = ['html', 'htm'], ignore =
     const stat = await fs.promises.stat(resolved).catch(() => null);
     if (!stat) throw new Error(`Not found: ${input}`);
     if (stat.isDirectory()) {
-      for (const file of await walk(resolved, extensions, ignore)) files.push({ file, root: resolved });
+      for (const file of await walk(resolved, extensionsRead, ignore)) files.push({ file, root: resolved });
     } else {
       files.push({ file: resolved, root: path.dirname(resolved) });
     }

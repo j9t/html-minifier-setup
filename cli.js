@@ -31,11 +31,15 @@ const positiveInteger = (value) => {
 };
 
 /** @param {string} value */
-const viewports = (value) => list(value).map((item) => {
-  const match = item.match(/^(\d+)x(\d+)$/);
-  if (!match) throw new Error(`Not a viewport (e.g., 1280x800): ${item}`);
-  return { width: Number(match[1]), height: Number(match[2]) };
-});
+const viewports = (value) => {
+  const items = list(value);
+  if (!items.length) throw new Error('No viewports given (e.g., 1280x800,390x844)');
+  return items.map((item) => {
+    const match = item.match(/^([1-9]\d*)x([1-9]\d*)$/);
+    if (!match) throw new Error(`Not a viewport (e.g., 1280x800): ${item}`);
+    return { width: Number(match[1]), height: Number(match[2]) };
+  });
+};
 
 /**
  * @param {string} file
@@ -59,7 +63,7 @@ const program = new Command()
   .option('-o, --output [file]', `Write the configuration to a file (default: ${CONFIG_FILE_DEFAULT}) rather than print it`)
   .addOption(new Option('-m, --metric <metric>', 'Size that decides whether an option gains').choices(METRICS).default('gzip'))
   .option('-s, --sample <count>', 'Pages to evaluate at most, spread across directories', positiveInteger, 20)
-  .option('--file-ext <list>', 'File extensions to read in directories', list, ['html', 'htm'])
+  .option('--file-ext <list>', 'File extensions to read in directories (`*` for all files)', list, ['html', 'htm'])
   .option('--ignore-dir <list>', 'Directory names to skip', list, ['node_modules'])
   .option('--keep <list>', 'Options to recommend regardless of risks and gains', list, [])
   .option('--skip <list>', 'Options not to evaluate', list, [])

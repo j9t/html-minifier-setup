@@ -145,6 +145,14 @@ describe('CLI', () => {
     assert.match(stderr, /collapseEverything/);
   });
 
+  test('Fails on missing or empty viewports', async () => {
+    for (const value of ['', '0x800', '1280x0']) {
+      const { code, stderr } = await run([dirSite, '--viewports', value]);
+      assert.strictEqual(code, 1, value);
+      assert.match(stderr, /viewport/i, value);
+    }
+  });
+
   test('Fails on inputs without pages', async () => {
     const { code, stderr } = await run([path.join(dirSite, 'css'), '--no-render']);
     assert.strictEqual(code, 1);

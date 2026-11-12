@@ -24,6 +24,13 @@ describe('loadPages', () => {
     await assert.rejects(loadPages([path.join(dirSite, 'missing.html')]), /missing\.html/);
   });
 
+  test('Reads all files for the extension `*`, and extensions as HTML Minifier does', async () => {
+    const all = await loadPages([dirSite], { extensions: ['*'] });
+    assert.ok(all.some((page) => page.id === 'notes.txt'));
+    const dotted = await loadPages([dirSite], { extensions: ['.HTML'] });
+    assert.deepStrictEqual(dotted.map((page) => page.id).sort(), ['blog/app.html', 'index.html', 'poem.html']);
+  });
+
   test('Limits pages to the sample size', async () => {
     const pages = await loadPages([dirSite], { sample: 2 });
     assert.strictEqual(pages.length, 2);

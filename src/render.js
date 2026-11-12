@@ -11,6 +11,7 @@ import { isInside } from './pages.js';
 /**
  * @typedef {object} Verdict
  * @prop {boolean} equal
+ * @prop {boolean} inconclusive Whether, at some viewport, nothing but script errors could be compared, and none differed
  * @prop {string[]} reasons Why the minified page isn’t equal
  * @prop {string[]} notes What limited the comparison
  */
@@ -134,6 +135,9 @@ export const installChromium = () => new Promise((resolve) => {
  * @returns {Promise<{renderer: Renderer | null, reason: string, missing?: boolean}>}
  */
 export async function createRenderer({ viewports = VIEWPORTS_DEFAULT, timeout = 30000, browsers = BROWSERS } = {}) {
+  if (!viewports.length || viewports.some(({ width, height }) => !(width >= 1 && height >= 1))) {
+    throw new Error(`Invalid viewports: ${JSON.stringify(viewports)} (at least one, each at least 1×1)`);
+  }
   /** @type {typeof import('playwright') | null} */
   const playwright = await import('playwright').catch(() => null);
   if (!playwright) return { renderer: null, reason: 'Playwright isn’t installed' };
@@ -231,17 +235,22 @@ export async function createRenderer({ viewports = VIEWPORTS_DEFAULT, timeout = 
         const reasons = [];
         /** @type {string[]} */
         const notes = [];
+        let blind = false;
         for (const viewport of viewports) {
           const at = describeViewport(viewport);
           const [{ capture: before, stableShot, stableText }, after] = await Promise.all([original(page, viewport), capture(page, html, viewport)]);
-          if (!stableShot) {
+          if (!stableShot && !stableText) {
+            blind = true;
+            notes.push(`Looks and reads different between loads at ${at}, so only script errors were compared`);
+          } else if (!stableShot) {
             notes.push(`Looks different between loads at ${at}, so screenshots weren’t compared`);
-          } else if (!before.shot.equals(after.shot)) {
+          } else if (!stableText) {
+            notes.push(`Text differs between loads at ${at}, so text wasn’t compared`);
+          }
+          if (stableShot && !before.shot.equals(after.shot)) {
             reasons.push(`Looks different at ${at}`);
           }
-          if (!stableText) {
-            notes.push(`Text differs between loads at ${at}, so text wasn’t compared`);
-          } else if (before.text !== after.text) {
+          if (stableText && before.text !== after.text) {
             reasons.push(`Text differs at ${at}: ${firstDifference(before.text, after.text)}`);
           }
           const known = [...before.errors];
@@ -254,7 +263,8 @@ export async function createRenderer({ viewports = VIEWPORTS_DEFAULT, timeout = 
             }
           }
         }
-        return { equal: reasons.length === 0, reasons: [...new Set(reasons)], notes: [...new Set(notes)] };
+        const inconclusive = blind && reasons.length === 0;
+        return { equal: reasons.length === 0 && !inconclusive, inconclusive, reasons: [...new Set(reasons)], notes: [...new Set(notes)] };
       },
       async close() {
         await browserOpen.close();

@@ -69,6 +69,17 @@ describe('customize', () => {
     assert.strictEqual(result.options.removeUnusedCSS, true);
   });
 
+  test('Drops kept options whose requirement is rejected later', async () => {
+    const page = createPage({ id: 'kept.html', html: '<style>.a { color: red }\n.unused { color: blue }</style><p class=a>x</p>', resources: {} });
+    const renderer = fakeRenderer((html) => html.includes('.a { color: red }'));
+    const result = await customize([page], { keep: ['removeUnusedCSS'], renderer, presets: false });
+    assert.strictEqual(evaluation(result, 'minifyCSS').status, 'rejected');
+    const unused = evaluation(result, 'removeUnusedCSS');
+    assert.strictEqual(unused.status, 'rejected');
+    assert.match(unused.reasons.map((reason) => reason.message).join('\n'), /Needs `minifyCSS`/);
+    assert.ok(!('removeUnusedCSS' in result.options));
+  });
+
   test('Doesn’t evaluate options whose requirement is rejected or skipped', async () => {
     const result = await customize(pageHome, { skip: ['minifyCSS'] });
     const unused = evaluation(result, 'removeUnusedCSS');
@@ -250,5 +261,20 @@ describe('customize', () => {
     for (const concurrency of [0, 1.5, Number.NaN]) {
       await assert.rejects(customize(pageHome, { concurrency }), /concurrency/i);
     }
+  });
+
+  test('Doesn’t claim the configuration looks the same where render checks were inconclusive', async () => {
+    const renderer = {
+      async compare() {
+        return { equal: false, inconclusive: true, reasons: [], notes: ['Looks and reads different between loads'] };
+      },
+      async close() {}
+    };
+    const result = await customize(pagePoem, { renderer, presets: false });
+    assert.strictEqual(result.renderedSame, false);
+    const collapse = evaluation(result, 'collapseWhitespace');
+    assert.strictEqual(collapse.status, 'accepted');
+    assert.ok(collapse.reasons.some((reason) => reason.level === 'check'));
+    assert.ok(!collapse.reasons.some((reason) => reason.message === 'Looks the same where checks were needed'));
   });
 });
