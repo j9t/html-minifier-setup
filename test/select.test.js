@@ -238,4 +238,17 @@ describe('customize', () => {
     assert.strictEqual(result.metric, 'raw');
     assert.strictEqual(evaluation(result, 'sortAttributes').status, 'no-gain');
   });
+
+  test('Evaluates pages that share an ID independently', async () => {
+    const pageA = createPage({ id: 'index.html', html: '<p>a   b</p>', resources: {} });
+    const pageB = createPage({ id: 'index.html', html: '<p>another   page,   longer</p>', resources: {} });
+    const [both, onlyA, onlyB] = await Promise.all([[pageA, pageB], [pageA], [pageB]].map((list) => customize(list, { presets: false })));
+    assert.strictEqual(both.baseline.raw, onlyA.baseline.raw + onlyB.baseline.raw);
+  });
+
+  test('Fails on concurrency that would render no page', async () => {
+    for (const concurrency of [0, 1.5, Number.NaN]) {
+      await assert.rejects(customize(pageHome, { concurrency }), /concurrency/i);
+    }
+  });
 });

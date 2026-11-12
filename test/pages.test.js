@@ -1,5 +1,6 @@
 import { describe, test } from 'node:test';
 import assert from 'node:assert';
+import http from 'node:http';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createPage, loadPages, samplePaths } from '../src/pages.js';
@@ -46,6 +47,40 @@ describe('Page resources', () => {
     assert.strictEqual(await page?.load('../../catalog.test.js'), null);
   });
 
+  test('Resolves references relative to the resource that makes them', () => {
+    const local = createPage({ id: 'blog/app.html', html: '', resources: {} });
+    assert.strictEqual(local.resolve('b.css', '../css/a.css'), '/css/b.css');
+    assert.strictEqual(local.resolve('/b.css', 'a.css'), '/b.css');
+    assert.strictEqual(local.resolve('https://example.org/b.css', 'a.css'), 'https://example.org/b.css');
+    const remote = createPage({ id: 'x', html: '', url: 'https://example.com/blog/' });
+    assert.strictEqual(remote.resolve('b.css', '../css/a.css'), 'https://example.com/css/b.css');
+  });
+
+  test('Follows redirects within the origin only', async () => {
+    /** @param {(request: http.IncomingMessage, response: http.ServerResponse) => void} handler */
+    const listen = (handler) => new Promise((resolve) => {
+      const server = http.createServer(handler).listen(0, '127.0.0.1', () => resolve(server));
+    });
+    const other = /** @type {http.Server} */ (await listen((_, response) => response.end('elsewhere')));
+    const portOther = /** @type {import('node:net').AddressInfo} */ (other.address()).port;
+    const site = /** @type {http.Server} */ (await listen((request, response) => {
+      if (request.url === '/away.css') response.writeHead(302, { location: `http://127.0.0.1:${portOther}/x.css` }).end();
+      else if (request.url === '/moved.css') response.writeHead(301, { location: '/here.css' }).end();
+      else response.end('here');
+    }));
+    const portSite = /** @type {import('node:net').AddressInfo} */ (site.address()).port;
+    try {
+      const page = createPage({ id: 'p', html: '', url: `http://127.0.0.1:${portSite}/` });
+      assert.strictEqual(await page.load('away.css'), null);
+      assert.strictEqual(await page.load('moved.css'), 'here');
+    } finally {
+      for (const server of [other, site]) {
+        server.closeAllConnections();
+        server.close();
+      }
+    }
+  });
+
   test('Returns null for every reference of in-memory pages', async () => {
     const page = createPage({ id: 'memory', html: '<p>a' });
     assert.strictEqual(await page.load('a.css'), null);
@@ -61,5 +96,10 @@ describe('samplePaths', () => {
     const paths = ['a/1.html', 'a/2.html', 'a/3.html', 'a/4.html', 'b/1.html', 'c/1.html'];
     const sample = samplePaths(paths, 3);
     assert.deepStrictEqual(sample.map((p) => p[0]).sort(), ['a', 'b', 'c']);
+  });
+
+  test('Keeps the order of paths within each directory', () => {
+    const paths = ['a/1.html', 'a/2.html', 'b/1.html', 'b/2.html'];
+    assert.deepStrictEqual(samplePaths(paths, 2), ['a/1.html', 'b/1.html']);
   });
 });

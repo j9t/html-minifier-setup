@@ -44,6 +44,13 @@ describe('formatLine', () => {
     assert.match(line, /Evaluating options/);
   });
 
+  test('Fits narrow terminals by shortening the title, keeping the time', () => {
+    const line = formatLine({ title: 'Measuring contributions', detail: 'x', current: 1, total: 4, elapsed: 83000, frame: 0, columns: 20, color: true });
+    assert.ok(visibleLength(line) <= 19, `${visibleLength(line)} columns`);
+    assert.match(line, /Measuring ?…/);
+    assert.match(line, /1:23/);
+  });
+
   test('Uses no escape codes without color', () => {
     const line = formatLine({ title: 'Rendering', detail: 'x', current: 1, total: 4, elapsed: 0, frame: 3, columns: 80, color: false });
     assert.doesNotMatch(line, RE_ANSI);

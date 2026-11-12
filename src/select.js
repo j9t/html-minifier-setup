@@ -128,19 +128,23 @@ export async function customize(pagesGiven, settings = {}) {
   for (const name of [...keep, ...skip]) {
     if (!names.includes(name)) throw new Error(`Unknown option: ${name} (options that can be kept or skipped: ${names.join(', ')})`);
   }
+  if (!Number.isInteger(concurrency) || concurrency < 1) throw new Error(`Invalid concurrency: ${concurrency} (pages to render at once, at least 1)`);
 
-  /** @type {Map<string, Promise<string>>} */
+  // By page rather than by ID, as pages from different roots may share one
+  /** @type {Map<import('./pages.js').Page, Map<string, Promise<string>>>} */
   const outputs = new Map();
   /**
    * @param {import('./pages.js').Page} page
    * @param {Record<string, unknown>} options
    */
   const run = (page, options) => {
-    const key = `${page.id}\u0000${stableKey(options)}`;
-    let output = outputs.get(key);
+    const byOptions = outputs.get(page) ?? new Map();
+    outputs.set(page, byOptions);
+    const key = stableKey(options);
+    let output = byOptions.get(key);
     if (!output) {
       output = minify(page.html, { ...options, log: () => {} });
-      outputs.set(key, output);
+      byOptions.set(key, output);
     }
     return output;
   };
@@ -424,11 +428,8 @@ export async function customize(pagesGiven, settings = {}) {
   }
 
   // 3. What each option contributes; as fewer options may render differently, too, rendering
-  // is settled again where any were dropped
-  if (await settleContributions() && renderer) {
-    await settleRendering();
-    await settleContributions();
-  }
+  // is settled again until no more are dropped
+  while (await settleContributions() && renderer) await settleRendering();
   const options = combine(inUse());
   const final = await sizesOf(options);
 

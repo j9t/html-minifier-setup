@@ -4,15 +4,15 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createPage, loadPages } from '../src/pages.js';
-import { createRenderer, playwrightCli } from '../src/render.js';
+import { createRenderer, playwrightCli, serve } from '../src/render.js';
 
 const dirSite = path.join(path.dirname(fileURLToPath(import.meta.url)), 'fixtures', 'site');
 const { renderer, reason } = await createRenderer({ viewports: [{ width: 800, height: 600 }] });
 
 describe('createRenderer browsers', () => {
   test('Falls back to other browsers where one doesn’t start, naming the one used', { skip: renderer ? false : `No browser: ${reason}` }, async () => {
-    const found = await createRenderer({ browsers: [{ name: 'Nothing', channel: 'nonexistent' }, { name: 'Chromium' }, { name: 'Chrome', channel: 'chrome' }] });
-    assert.match(found.renderer?.browser ?? '', /^(Chromium|Chrome) \d+/);
+    const found = await createRenderer({ browsers: [{ name: 'Nothing', channel: 'nonexistent' }, { name: 'Edge', channel: 'msedge' }, { name: 'Chromium' }, { name: 'Chrome', channel: 'chrome' }] });
+    assert.match(found.renderer?.browser ?? '', /^(Edge|Chromium|Chrome) \d+/);
     await found.renderer?.close();
   });
 
@@ -57,9 +57,31 @@ describe('createRenderer', { skip: renderer ? false : `No browser: ${reason}` },
     assert.match(verdict.reasons.join(), /script error/i);
   });
 
+  test('Doesn’t compare text that differs between loads of the original', async () => {
+    const page = createPage({ id: 'd.html', html: '<!doctype html><p style="color: transparent">x</p><script>document.querySelector("p").textContent = Math.random()</script>' });
+    const verdict = await r.compare(page, page.html);
+    assert.strictEqual(verdict.equal, true);
+    assert.match(verdict.notes.join(), /Text differs between loads/);
+  });
+
   test('Ignores script errors the original has, too', async () => {
     const page = createPage({ id: 'c.html', html: '<!doctype html><p>a</p><script>nope()</script>' });
     const verdict = await r.compare(page, '<!doctype html><p>a</p><script>nope()</script>');
     assert.strictEqual(verdict.equal, true);
+  });
+});
+describe('serve', () => {
+  test('Serves files within the root, answering malformed paths and paths outside the root with client errors', async () => {
+    const server = await serve(dirSite);
+    /** @type {number[]} */
+    const statuses = [];
+    try {
+      for (const pathname of ['/css/site.css', '/%E0%A4%A', '/..%2F..%2Fpages.test.js', '/missing.css']) {
+        statuses.push((await fetch(`${server.origin}${pathname}`)).status);
+      }
+    } finally {
+      await server.close();
+    }
+    assert.deepStrictEqual(statuses, [200, 400, 404, 404]);
   });
 });

@@ -9,10 +9,22 @@ import path from 'node:path';
  * @prop {string | null} file
  * @prop {string | null} root Directory that root-relative references resolve against
  * @prop {(ref: string) => Promise<string | null>} load Reads a resource the page references, where local or same-origin
+ * @prop {(ref: string, base: string) => string} resolve Turns a reference made by a resource the page references into one made by the page
  */
 
+const MAX_REDIRECTS = 5;
 const RE_SCHEME = /^[a-z][\w+.-]*:|^\/\//i;
 const RE_URL_INPUT = /^https?:\/\//i;
+
+/**
+ * Whether a path lies within the root (or is the root)
+ * @param {string} root
+ * @param {string} target
+ */
+export function isInside(root, target) {
+  const relative = path.relative(root, target);
+  return relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative);
+}
 
 /**
  * @param {{id: string, html: string, url?: string | null, file?: string | null, root?: string | null, resources?: Record<string, string>}} spec
@@ -28,12 +40,18 @@ export function createPage({ id, html, url = null, file = null, root = null, res
     if (file && root) return readLocal(file, root, ref);
     return null;
   };
+  // Local pages resolve as if served from their root
+  const location = url ?? `http://page.invalid/${id.split('/').map(encodeURIComponent).join('/')}`;
   return {
     id,
     html,
     url,
     file,
     root,
+    resolve(ref, base) {
+      const target = new URL(ref, new URL(base, location));
+      return url || target.origin !== new URL(location).origin ? target.href : `${target.pathname}${target.search}`;
+    },
     load(ref) {
       let pending = cache.get(ref);
       if (!pending) {
@@ -55,8 +73,7 @@ async function readLocal(file, root, ref) {
   const clean = decodeURI(ref.replace(/[?#].*$/s, ''));
   if (!clean) return null;
   const target = clean.startsWith('/') ? path.join(root, clean) : path.resolve(path.dirname(file), clean);
-  const relative = path.relative(root, target);
-  if (relative.startsWith('..') || path.isAbsolute(relative)) return null;
+  if (!isInside(root, target)) return null;
   return fs.promises.readFile(target, 'utf8');
 }
 
@@ -65,10 +82,17 @@ async function readLocal(file, root, ref) {
  * @param {string} ref
  */
 async function fetchSameOrigin(pageUrl, ref) {
-  const target = new URL(ref, pageUrl);
-  if (target.origin !== new URL(pageUrl).origin) return null;
-  const response = await fetch(target, { signal: AbortSignal.timeout(15000) });
-  return response.ok ? response.text() : null;
+  const { origin } = new URL(pageUrl);
+  let target = new URL(ref, pageUrl);
+  // Redirects are followed one by one, so that none leads to another origin
+  for (let redirects = 0; redirects <= MAX_REDIRECTS && target.origin === origin; redirects++) {
+    const response = await fetch(target, { redirect: 'manual', signal: AbortSignal.timeout(15000) });
+    const location = response.headers.get('location');
+    if (response.status < 300 || response.status > 399 || !location) return response.ok ? response.text() : null;
+    await response.body?.cancel();
+    target = new URL(location, target);
+  }
+  return null;
 }
 
 /**
@@ -84,7 +108,9 @@ export function samplePaths(paths, count) {
   const byDir = new Map();
   for (const p of [...paths].sort()) {
     const dir = path.dirname(p);
-    byDir.set(dir, [...byDir.get(dir) ?? [], p]);
+    const queue = byDir.get(dir) ?? [];
+    queue.push(p);
+    byDir.set(dir, queue);
   }
   // Within a directory, a golden-ratio order spreads picks rather than taking its first pages
   const queues = [...byDir.values()].map((queue) => queue

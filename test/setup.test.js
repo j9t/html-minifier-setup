@@ -74,6 +74,18 @@ describe('detectPackageManager', () => {
       assert.strictEqual(detectPackageManager(dir), 'npm');
     });
   });
+
+  test('Detects the package manager a package.json declares, after lockfiles', async () => {
+    await inDir({ 'package.json': JSON.stringify({ packageManager: 'pnpm@9.1.0' }), 'site/index.html': '' }, async (dir) => {
+      assert.strictEqual(detectPackageManager(path.join(dir, 'site')), 'pnpm');
+    });
+    await inDir({ 'package.json': JSON.stringify({ packageManager: 'yarn@4.0.0' }), 'bun.lock': '' }, async (dir) => {
+      assert.strictEqual(detectPackageManager(dir), 'bun');
+    });
+    await inDir({ 'package.json': JSON.stringify({ packageManager: 'unknown@1.0.0' }) }, async (dir) => {
+      assert.strictEqual(detectPackageManager(dir), 'npm');
+    });
+  });
 });
 
 describe('fetchLatestVersion', () => {
@@ -101,6 +113,16 @@ describe('isNewer', () => {
     assert.strictEqual(isNewer('5.10.0', '5.9.1'), true);
     assert.strictEqual(isNewer('5.1.0', '5.1.0'), false);
     assert.strictEqual(isNewer('4.9.9', '5.0.0'), false);
+  });
+
+  test('Ranks releases above their prereleases, and prereleases by identifier', () => {
+    assert.strictEqual(isNewer('5.2.0', '5.2.0-rc.1'), true);
+    assert.strictEqual(isNewer('5.2.0-rc.1', '5.2.0'), false);
+    assert.strictEqual(isNewer('5.2.0-rc.10', '5.2.0-rc.9'), true);
+    assert.strictEqual(isNewer('5.2.0-beta', '5.2.0-alpha.1'), true);
+    assert.strictEqual(isNewer('5.2.0-alpha.1', '5.2.0-alpha'), true);
+    assert.strictEqual(isNewer('5.2.0-alpha.1', '5.2.0-alpha.beta'), false);
+    assert.strictEqual(isNewer('5.2.0+build.2', '5.2.0+build.1'), false);
   });
 });
 
@@ -240,10 +262,10 @@ describe('offerSetup', () => {
       const { ask, questions } = scripted(['y', '', 'y', '']);
       const { install, calls } = fakeInstall();
       await offerSetup({ config: CONFIG, cwd: path.join(dir, 'tool'), dirProject: dirSite, ask, install, log() {} });
-      assert.match(questions[1] ?? '', /Folder \(\.\.\/site\)/);
+      assert.match(questions[1] ?? '', /Folder \(\.\.[\\/]site\)/);
       assert.ok(fs.existsSync(path.join(dirSite, 'html-minifier.config.json')));
       assert.match(questions[2] ?? '', /Install HTML Minifier/);
-      assert.match(questions[3] ?? '', /Folder \(\.\.\/site\)/);
+      assert.match(questions[3] ?? '', /Folder \(\.\.[\\/]site\)/);
       assert.deepStrictEqual(calls, [{ dir: dirSite, manager: 'npm' }]);
     });
   });

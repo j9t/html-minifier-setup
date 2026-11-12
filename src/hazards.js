@@ -28,6 +28,8 @@ const MODES = { 'quirks': 'quirks mode', 'limited-quirks': 'almost standards mod
 const RE_STRING_LITERAL = /(["'`])((?:\\.|(?!\1)[^\\\n])*)\1/g;
 const RE_WORD = /[\w-]+/g;
 const RE_ATTRIBUTE_SELECTOR = /\[\s*([\w-]+)\s*(?=[~|^$*]?=|\])/g;
+const RE_CSS_COMMENT = /\/\*[\s\S]*?\*\//g;
+const RE_IMPORT = /@import\s+(?:url\(\s*)?(["']?)([^"')\s;]+)\1/gi;
 const RE_ATTRIBUTE_CALL = /\b(?:get|has|remove|set|toggle)Attribute(?:NS)?\(\s*(?:[^,()]*,\s*)?["'`]([\w-]+)/g;
 const RE_WHITESPACE_KEPT = /white-space(?:-collapse)?\s*:\s*(?:pre-wrap|pre-line|pre|break-spaces|preserve-breaks|preserve-spaces|preserve)(?![\w-])/i;
 const RE_READS_COMMENTS = /SHOW_COMMENT|COMMENT_NODE|nodeType\s*[!=]==?\s*8\b|\.childNodes\b[^;]*\.data\b/;
@@ -137,7 +139,7 @@ function whitespaceRulesOf(css) {
 
 /** @param {string} css */
 const selectorTokens = (css) => {
-  let selectors = css.replace(/\/\*[\s\S]*?\*\//g, '');
+  let selectors = css.replace(RE_CSS_COMMENT, '');
   // Strips declaration blocks innermost first, so that nested at-rules leave their selectors
   for (let previous = ''; previous !== selectors;) {
     previous = selectors;
@@ -160,6 +162,23 @@ export async function analyzePage(page) {
   const styles = [];
   /** @type {Promise<void>[]} */
   const pending = [];
+  /** @type {Set<string>} */
+  const imported = new Set();
+
+  /**
+   * Adds a style sheet and, where local or same-origin, what it imports
+   * @param {string} css
+   * @param {string | null} base Reference of the style sheet, if not in the page
+   */
+  const addStyles = (css, base) => {
+    styles.push(css);
+    for (const [, , ref = ''] of css.replace(RE_CSS_COMMENT, '').matchAll(RE_IMPORT)) {
+      const target = base === null ? ref : page.resolve(ref, base);
+      if (imported.has(target)) continue;
+      imported.add(target);
+      pending.push(page.load(target).then((text) => { if (text !== null) addStyles(text, target); }));
+    }
+  };
 
   for (const element of elementsOf(page.html)) {
     for (const { name, value } of element.attrs) {
@@ -174,13 +193,14 @@ export async function analyzePage(page) {
         pending.push(page.load(src).then((text) => { text === null ? scriptsUnread.push(src) : scripts.push(text); }));
       }
     } else if (element.tagName === 'style') {
-      styles.push(textOf(element));
+      addStyles(textOf(element), null);
     } else if (element.tagName === 'link' && /(?:^|\s)stylesheet(?:\s|$)/i.test(attr(element, 'rel') ?? '')) {
       const href = attr(element, 'href');
-      if (href) pending.push(page.load(href).then((text) => { if (text !== null) styles.push(text); }));
+      if (href) pending.push(page.load(href).then((text) => { if (text !== null) addStyles(text, href); }));
     }
   }
-  await Promise.all(pending);
+  // Imports add to what is pending while it settles
+  while (pending.length) await Promise.all(pending.splice(0));
 
   const scriptText = scripts.join('\n;\n');
   const css = styles.join('\n');

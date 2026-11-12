@@ -59,10 +59,11 @@ const truncate = (text, width) => {
  */
 export function formatLine({ title, detail, current = 0, total, elapsed, frame, columns, color }) {
   const spinner = paint('accent', FRAMES[frame % FRAMES.length] ?? '', color);
-  const head = `${spinner} ${paint('bold', title, color)}`;
+  /** @param {string} text */
+  const head = (text) => `${spinner} ${paint('bold', text, color)}`;
   const time = paint('dim', formatElapsed(elapsed), color);
   /** @type {string[]} */
-  const parts = [head];
+  const parts = [head(title)];
   if (total) {
     const ratio = Math.min(1, Math.max(0, current / total));
     const filled = Math.round(ratio * WIDTH_BAR);
@@ -74,6 +75,9 @@ export function formatLine({ title, detail, current = 0, total, elapsed, frame, 
   const budget = columns - 1;
   // Where even without a detail the line is too long, the bar goes first
   if (visibleLength(parts.join('  ')) > budget && parts.length > 2) parts.splice(1, 1);
+  // And then the title
+  const over = visibleLength(parts.join('  ')) - budget;
+  if (over > 0) parts[0] = head(truncate(title, [...title].length - over));
   const room = budget - visibleLength(parts.join('  ')) - 2;
   if (detail && room > 3) parts.push(truncate(detail, room));
   return parts.join('  ');

@@ -50,9 +50,9 @@
   "scripts": {
     "lint": "eslint .",
     "prepare": "git config core.hooksPath .githooks || true",
-    "test": "npm run test:types && node --test test/**/*.test.js",
+    "test": "npm run test:types && node --test \"test/**/*.test.js\"",
     "test:types": "tsc",
-    "test:watch": "node --test --watch test/**/*.test.js"
+    "test:watch": "node --test --watch \"test/**/*.test.js\""
   },
   "type": "module",
   "version": "0.1.0"

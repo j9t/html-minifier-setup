@@ -6,6 +6,7 @@ import fs from 'node:fs';
 import http from 'node:http';
 import { createRequire } from 'node:module';
 import path from 'node:path';
+import { isInside } from './pages.js';
 
 /**
  * @typedef {object} Verdict
@@ -58,12 +59,17 @@ const describeViewport = ({ width, height }) => `${width}×${height}`;
  * @param {string | null} root
  * @returns {Promise<{origin: string, close: () => Promise<void>}>}
  */
-async function serve(root) {
+export async function serve(root) {
   const server = http.createServer(async (request, response) => {
-    const pathname = decodeURIComponent(new URL(request.url ?? '/', 'http://localhost').pathname);
+    let pathname;
+    try {
+      pathname = decodeURIComponent(new URL(request.url ?? '/', 'http://localhost').pathname);
+    } catch {
+      response.writeHead(400).end();
+      return;
+    }
     const file = root ? path.join(root, pathname.endsWith('/') ? `${pathname}index.html` : pathname) : null;
-    const inside = root && file && !path.relative(root, file).startsWith('..');
-    const body = inside ? await fs.promises.readFile(file).catch(() => null) : null;
+    const body = root && file && isInside(root, file) ? await fs.promises.readFile(file).catch(() => null) : null;
     if (!body || !file) {
       response.writeHead(404).end();
       return;
@@ -150,8 +156,8 @@ export async function createRenderer({ viewports = VIEWPORTS_DEFAULT, timeout = 
 
   /** @type {Map<string | null, ReturnType<typeof serve>>} */
   const servers = new Map();
-  /** @type {Map<string, Promise<{capture: Capture, stable: boolean}>>} */
-  const originals = new Map();
+  /** @type {WeakMap<import('./pages.js').Page, Map<string, Promise<{capture: Capture, stableShot: boolean, stableText: boolean}>>>} */
+  const originals = new WeakMap();
 
   /** @param {import('./pages.js').Page} page */
   async function urlOf(page) {
@@ -200,15 +206,17 @@ export async function createRenderer({ viewports = VIEWPORTS_DEFAULT, timeout = 
    * @param {Viewport} viewport
    */
   function original(page, viewport) {
-    const key = `${page.url ?? page.file ?? page.id}|${describeViewport(viewport)}`;
-    let pending = originals.get(key);
+    const byViewport = originals.get(page) ?? new Map();
+    originals.set(page, byViewport);
+    const key = describeViewport(viewport);
+    let pending = byViewport.get(key);
     if (!pending) {
       pending = (async () => {
         const first = await capture(page, page.html, viewport);
         const second = await capture(page, page.html, viewport);
-        return { capture: first, stable: first.shot.equals(second.shot) && first.text === second.text };
+        return { capture: first, stableShot: first.shot.equals(second.shot), stableText: first.text === second.text };
       })();
-      originals.set(key, pending);
+      byViewport.set(key, pending);
     }
     return pending;
   }
@@ -225,13 +233,15 @@ export async function createRenderer({ viewports = VIEWPORTS_DEFAULT, timeout = 
         const notes = [];
         for (const viewport of viewports) {
           const at = describeViewport(viewport);
-          const [{ capture: before, stable }, after] = await Promise.all([original(page, viewport), capture(page, html, viewport)]);
-          if (!stable) {
-            notes.push(`Looks different between loads at ${at}, so only text and script errors were compared`);
+          const [{ capture: before, stableShot, stableText }, after] = await Promise.all([original(page, viewport), capture(page, html, viewport)]);
+          if (!stableShot) {
+            notes.push(`Looks different between loads at ${at}, so screenshots weren’t compared`);
           } else if (!before.shot.equals(after.shot)) {
             reasons.push(`Looks different at ${at}`);
           }
-          if (before.text !== after.text) {
+          if (!stableText) {
+            notes.push(`Text differs between loads at ${at}, so text wasn’t compared`);
+          } else if (before.text !== after.text) {
             reasons.push(`Text differs at ${at}: ${firstDifference(before.text, after.text)}`);
           }
           const known = [...before.errors];

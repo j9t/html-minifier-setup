@@ -73,6 +73,21 @@ export function projectOf(inputs, cwd) {
 }
 
 /**
+ * The package manager a package.json declares, if known
+ * @param {string} dir
+ * @returns {PackageManager | null}
+ */
+function declaredPackageManager(dir) {
+  try {
+    const name = String(JSON.parse(fs.readFileSync(path.join(dir, 'package.json'), 'utf8')).packageManager ?? '').split('@')[0];
+    return name && name in INSTALL_ARGS ? /** @type {PackageManager} */ (name) : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The package manager of the nearest project, by lockfile, then by declaration
  * @param {string} dir
  * @returns {PackageManager}
  */
@@ -80,6 +95,8 @@ export function detectPackageManager(dir) {
   for (const current of upwards(dir)) {
     const found = LOCKFILES.find(([file]) => fs.existsSync(path.join(current, file)));
     if (found) return found[1];
+    const declared = declaredPackageManager(current);
+    if (declared) return declared;
   }
   return 'npm';
 }
@@ -113,18 +130,34 @@ export async function fetchLatestVersion(name, { fetch = globalThis.fetch, regis
   }
 }
 
+/** @param {string} version */
+const parseVersion = (version) => {
+  const [, core = '', prerelease = ''] = /^v?([^+-]*)(?:-([^+]*))?/.exec(version.trim()) ?? [];
+  return { core: core.split('.').slice(0, 3).map(Number), prerelease: prerelease ? prerelease.split('.') : [] };
+};
+
 /**
- * Whether version `a` is newer than `b`, by major, minor, and patch
+ * Whether version `a` is newer than `b`, by SemVer precedence
  * @param {string} a
  * @param {string} b
  */
 export function isNewer(a, b) {
-  const [partsA, partsB] = [a, b].map((version) => version.split(/[.-]/).slice(0, 3).map(Number));
+  const [versionA, versionB] = [parseVersion(a), parseVersion(b)];
   for (let index = 0; index < 3; index++) {
-    const difference = (partsA?.[index] ?? 0) - (partsB?.[index] ?? 0);
+    const difference = (versionA.core[index] ?? 0) - (versionB.core[index] ?? 0);
     if (difference) return difference > 0;
   }
-  return false;
+  // A release is newer than its prereleases
+  if (!versionA.prerelease.length || !versionB.prerelease.length) return !versionA.prerelease.length && versionB.prerelease.length > 0;
+  for (let index = 0; ; index++) {
+    const [idA, idB] = [versionA.prerelease[index], versionB.prerelease[index]];
+    if (idA === undefined || idB === undefined) return idB === undefined && idA !== undefined;
+    if (idA === idB) continue;
+    const [numericA, numericB] = [/^\d+$/.test(idA), /^\d+$/.test(idB)];
+    // Numeric identifiers rank below alphanumeric ones
+    if (numericA && numericB) return Number(idA) > Number(idB);
+    return numericA === numericB ? idA > idB : numericB;
+  }
 }
 
 /** @param {string} answer */
