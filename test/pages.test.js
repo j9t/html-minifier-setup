@@ -35,8 +35,8 @@ describe('Page resources', () => {
     const pages = await loadPages([dirSite]);
     const app = pages.find((page) => page.id === 'blog/app.html');
     const poem = pages.find((page) => page.id === 'poem.html');
-    assert.match(await app?.load('../js/app.js') ?? '', /is-open/);
-    assert.match(await poem?.load('/css/site.css?v=2') ?? '', /pre-line/);
+    assert.match((await app?.load('../js/app.js'))?.text ?? '', /is-open/);
+    assert.match((await poem?.load('/css/site.css?v=2'))?.text ?? '', /pre-line/);
   });
 
   test('Returns null for remote, missing, and out-of-root references', async () => {
@@ -56,7 +56,7 @@ describe('Page resources', () => {
     assert.strictEqual(remote.resolve('b.css', '../css/a.css'), 'https://example.com/css/b.css');
   });
 
-  test('Follows redirects within the origin only', async () => {
+  test('Follows redirects within the origin only, telling where they end', async () => {
     /** @param {(request: http.IncomingMessage, response: http.ServerResponse) => void} handler */
     const listen = (handler) => new Promise((resolve) => {
       const server = http.createServer(handler).listen(0, '127.0.0.1', () => resolve(server));
@@ -72,7 +72,7 @@ describe('Page resources', () => {
     try {
       const page = createPage({ id: 'p', html: '', url: `http://127.0.0.1:${portSite}/` });
       assert.strictEqual(await page.load('away.css'), null);
-      assert.strictEqual(await page.load('moved.css'), 'here');
+      assert.deepStrictEqual(await page.load('moved.css'), { text: 'here', ref: `http://127.0.0.1:${portSite}/here.css` });
     } finally {
       for (const server of [other, site]) {
         server.closeAllConnections();

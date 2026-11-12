@@ -41,8 +41,21 @@ describe('analyzePage', () => {
     assert.deepStrictEqual([...context.attributeRefs].sort(), ['data-c', 'data-inline']);
   });
 
+  test('Resolves imports relative to where a redirected style sheet ends', async () => {
+    const page = createPage({ id: 'test.html', html: '<link rel="stylesheet" href="style.css">', resources: { '/v2/b.css': '.poem { white-space: pre-line }' } });
+    const load = page.load;
+    page.load = async (ref) => ref === 'style.css' ? { text: '@import "b.css";', ref: '/v2/style.css' } : load(ref);
+    const context = await analyzePage(page);
+    assert.deepStrictEqual(context.whitespaceRules.map((rule) => rule.text), ['.poem { white-space: pre-line }']);
+  });
+
+  test('Skips imports it can’t resolve, collecting the others', async () => {
+    const context = await analyze('<link rel="stylesheet" href="a.css">', { 'a.css': '@import "http://[x"; @import "b.css";', '/b.css': '[data-b] {}' });
+    assert.deepStrictEqual([...context.attributeRefs], ['data-b']);
+  });
+
   test('Collects rules that keep whitespace, except for `pre` and `textarea` elements', async () => {
-    const context = await analyze('<style>pre, textarea { white-space: pre } .poem { white-space: pre-line }</style><p style="white-space: break-spaces">', {});
+    const context = await analyze('<style>@charset "utf-8"; pre, textarea { white-space: pre } /* Verse */ .poem { white-space: pre-line }</style><p style="white-space: break-spaces">', {});
     assert.deepStrictEqual(context.whitespaceRules.map((rule) => rule.text), ['.poem { white-space: pre-line }', '[style] { white-space: break-spaces }']);
   });
 });

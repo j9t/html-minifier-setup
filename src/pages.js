@@ -8,9 +8,11 @@ import path from 'node:path';
  * @prop {string | null} url Where the page lives online, if read from there
  * @prop {string | null} file
  * @prop {string | null} root Directory that root-relative references resolve against
- * @prop {(ref: string) => Promise<string | null>} load Reads a resource the page references, where local or same-origin
+ * @prop {(ref: string) => Promise<Resource | null>} load Reads a resource the page references, where local or same-origin
  * @prop {(ref: string, base: string) => string} resolve Turns a reference made by a resource the page references into one made by the page
  */
+
+/** @typedef {{text: string, ref: string}} Resource `ref` tells where the resource ended up after redirects */
 
 const MAX_REDIRECTS = 5;
 const RE_SCHEME = /^[a-z][\w+.-]*:|^\/\//i;
@@ -31,14 +33,16 @@ export function isInside(root, target) {
  * @returns {Page}
  */
 export function createPage({ id, html, url = null, file = null, root = null, resources }) {
-  /** @type {Map<string, Promise<string | null>>} */
+  /** @type {Map<string, Promise<Resource | null>>} */
   const cache = new Map();
-  /** @param {string} ref */
+  /**
+   * @param {string} ref
+   * @returns {Promise<Resource | null>}
+   */
   const read = async (ref) => {
-    if (resources) return resources[ref] ?? null;
     if (url) return fetchSameOrigin(url, ref);
-    if (file && root) return readLocal(file, root, ref);
-    return null;
+    const text = resources ? resources[ref] ?? null : file && root ? await readLocal(file, root, ref) : null;
+    return text === null ? null : { text, ref };
   };
   // Local pages resolve as if served from their root
   const location = url ?? `http://page.invalid/${id.split('/').map(encodeURIComponent).join('/')}`;
@@ -80,6 +84,7 @@ async function readLocal(file, root, ref) {
 /**
  * @param {string} pageUrl
  * @param {string} ref
+ * @returns {Promise<Resource | null>}
  */
 async function fetchSameOrigin(pageUrl, ref) {
   const { origin } = new URL(pageUrl);
@@ -88,7 +93,7 @@ async function fetchSameOrigin(pageUrl, ref) {
   for (let redirects = 0; redirects <= MAX_REDIRECTS && target.origin === origin; redirects++) {
     const response = await fetch(target, { redirect: 'manual', signal: AbortSignal.timeout(15000) });
     const location = response.headers.get('location');
-    if (response.status < 300 || response.status > 399 || !location) return response.ok ? response.text() : null;
+    if (response.status < 300 || response.status > 399 || !location) return response.ok ? { text: await response.text(), ref: target.href } : null;
     await response.body?.cancel();
     target = new URL(location, target);
   }

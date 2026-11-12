@@ -127,7 +127,8 @@ function mayMatch(selector, elements) {
 function whitespaceRulesOf(css) {
   /** @type {{selector: string, text: string}[]} */
   const rules = [];
-  for (const match of css.matchAll(/([^{}]*)\{([^{}]*)\}/g)) {
+  // Without comments and statements like `@import`, which would otherwise lead the next selector
+  for (const match of css.replace(RE_CSS_COMMENT, '').replace(/@[\w-]+[^{};]*;/g, '').matchAll(/([^{}]*)\{([^{}]*)\}/g)) {
     const selector = (match[1] ?? '').trim();
     const declaration = (match[2] ?? '').match(RE_WHITESPACE_KEPT)?.[0];
     if (!declaration || selector.startsWith('@')) continue;
@@ -173,10 +174,15 @@ export async function analyzePage(page) {
   const addStyles = (css, base) => {
     styles.push(css);
     for (const [, , ref = ''] of css.replace(RE_CSS_COMMENT, '').matchAll(RE_IMPORT)) {
-      const target = base === null ? ref : page.resolve(ref, base);
+      let target;
+      try {
+        target = base === null ? ref : page.resolve(ref, base);
+      } catch {
+        continue;
+      }
       if (imported.has(target)) continue;
       imported.add(target);
-      pending.push(page.load(target).then((text) => { if (text !== null) addStyles(text, target); }));
+      pending.push(page.load(target).then((sheet) => { if (sheet) addStyles(sheet.text, sheet.ref); }));
     }
   };
 
@@ -190,13 +196,13 @@ export async function analyzePage(page) {
       if (src === undefined) {
         scripts.push(textOf(element));
       } else {
-        pending.push(page.load(src).then((text) => { text === null ? scriptsUnread.push(src) : scripts.push(text); }));
+        pending.push(page.load(src).then((script) => { script === null ? scriptsUnread.push(src) : scripts.push(script.text); }));
       }
     } else if (element.tagName === 'style') {
       addStyles(textOf(element), null);
     } else if (element.tagName === 'link' && /(?:^|\s)stylesheet(?:\s|$)/i.test(attr(element, 'rel') ?? '')) {
       const href = attr(element, 'href');
-      if (href) pending.push(page.load(href).then((text) => { if (text !== null) addStyles(text, href); }));
+      if (href) pending.push(page.load(href).then((sheet) => { if (sheet) addStyles(sheet.text, sheet.ref); }));
     }
   }
   // Imports add to what is pending while it settles
