@@ -56,12 +56,25 @@ describe('formatReport', () => {
   test('Compares the result with presets', () => {
     const result = resultOf({ raw: 900, gzip: 400, brotli: 300 });
     result.presets = [
-      { name: 'conservative', size: 440, failing: 0, errors: 0, rejected: ['removeComments'] },
-      { name: 'comprehensive', size: 380, failing: 1, errors: 0, rejected: [] }
+      { name: 'conservative', size: 440, failing: 0, inconclusive: 0, errors: 0, rejected: ['removeComments'] },
+      { name: 'comprehensive', size: 380, failing: 1, inconclusive: 0, errors: 0, rejected: [] }
     ];
     const report = formatReport(result);
     assert.match(report, /conservative +440 B +10\.0% larger +looks the same; includes removeComments, which doesn’t fit/);
     assert.match(report, /comprehensive +380 B +5\.0% smaller +looks different on 1 of 1 page/);
+  });
+
+  test('Reports preset render checks that were inconclusive', () => {
+    const result = resultOf({ raw: 900, gzip: 400, brotli: 300 });
+    result.pages = ['a.html', 'b.html', 'c.html'];
+    result.presets = [
+      { name: 'conservative', size: 440, failing: 0, inconclusive: 3, errors: 0, rejected: [] },
+      { name: 'comprehensive', size: 380, failing: 1, inconclusive: 1, errors: 0, rejected: [] }
+    ];
+    const report = formatReport(result);
+    assert.match(report, /conservative .*inconclusive on 3 of 3 pages/);
+    assert.doesNotMatch(report, /looks the same/);
+    assert.match(report, /comprehensive .*looks different on 1 of 3 pages, inconclusive on 1/);
   });
 });
 

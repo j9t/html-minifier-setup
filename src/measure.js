@@ -1,8 +1,8 @@
 import { promisify } from 'node:util';
 import zlib from 'node:zlib';
 
-// As HTML Minifier measures: common defaults for on-the-fly compression (quality 11, for files
-// precompressed at build time, takes seconds per large file)
+// As in HTML Minifier’s benchmarks: common defaults for on-the-fly compression (quality 11, for
+// files precompressed at build time, takes seconds per large file)
 export const GZIP_LEVEL = 6;
 export const BROTLI_QUALITY = 6;
 

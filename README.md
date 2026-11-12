@@ -34,7 +34,7 @@ npx html-minifier --input-dir ./dist --output-dir ./dist
 | --- | --- |
 | `-c, --config-file <file>` | Start from an HTML Minifier configuration (JSON or module; defaults to html-minifier.config.json in the working directory, if present): Options on how input is read (e.g., `ignoreCustomFragments`, `caseSensitive`, `continueOnParseError`) are carried over; values for candidates (e.g., `minifyJS: {"engine": "swc"}`) are evaluated instead of `true`; and `fileExt`, `ignoreDir`, and cache sizes are kept, with `fileExt` and `ignoreDir` also applying to directories read |
 | `-o, --output [file]` | Write the configuration to a file (default: html-minifier.config.json) rather than print it |
-| `-m, --metric <metric>` | Size that decides whether an option gains: `raw`, `gzip` (default), or `brotli`, compressed as HTML Minifier measures (Gzip level 6, Brotli quality 6) |
+| `-m, --metric <metric>` | Size that decides whether an option gains: `raw`, `gzip` (default), or `brotli`, compressed at Gzip level 6 and Brotli quality 6, common defaults for on-the-fly compression (as in HTML Minifier’s benchmarks) |
 | `-s, --sample <count>` | Pages to evaluate at most (default: 20) |
 | `--file-ext <list>` | File extensions to read in directories, `*` for all files (default: `html,htm,shtml,shtm`, as HTML Minifier, or the configuration’s `fileExt`) |
 | `--ignore-dir <list>` | Directory names to skip (default: `node_modules`, or the configuration’s `ignoreDir`) |

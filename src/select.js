@@ -47,6 +47,7 @@ import { sizeOf, sumSizes } from './measure.js';
  * @prop {string} name
  * @prop {number} size Over the pages the preset could minify, by the metric
  * @prop {number | null} failing Pages rendering differently, if render-checked
+ * @prop {number | null} inconclusive Pages whose render check was inconclusive, if render-checked
  * @prop {number} errors Pages the preset couldn’t minify
  * @prop {string[]} rejected Options the preset includes that were rejected
  */
@@ -459,6 +460,7 @@ export async function customize(pagesGiven, settings = {}) {
       name,
       size: await totalSize(minified.map(({ html }) => html)),
       failing: verdicts ? verdicts.filter((verdict) => !verdict.equal && !verdict.inconclusive).length : null,
+      inconclusive: verdicts ? verdicts.filter((verdict) => verdict.inconclusive).length : null,
       errors,
       rejected: Object.keys(preset).filter((key) => /** @type {Record<string, unknown>} */ (preset)[key] && evaluations.get(key)?.status === 'rejected')
     };

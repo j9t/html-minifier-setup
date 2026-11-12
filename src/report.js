@@ -191,11 +191,14 @@ export function formatReport(result, { renderReason = '', color = false, verbose
       const share = finalMetric ? (preset.size / finalMetric - 1) * 100 : 0;
       const size = preset.errors ? `fails on ${preset.errors} of ${result.pages.length}` : formatBytes(preset.size);
       const relative = preset.errors ? '' : Math.abs(share) < 0.05 ? 'same size' : `${Math.abs(share).toFixed(1)}% ${share > 0 ? 'larger' : 'smaller'}`;
+      const ofPages = `of ${result.pages.length} page${result.pages.length === 1 ? '' : 's'}`;
       const rendering = preset.failing === null
         ? 'not render-checked'
         : preset.failing
-          ? paint('failure', `looks different on ${preset.failing} of ${result.pages.length} page${result.pages.length === 1 ? '' : 's'}`, color)
-          : paint('success', 'looks the same', color);
+          ? paint('failure', `looks different on ${preset.failing} ${ofPages}${preset.inconclusive ? `, inconclusive on ${preset.inconclusive}` : ''}`, color)
+          : preset.inconclusive
+            ? `inconclusive on ${preset.inconclusive} ${ofPages}`
+            : paint('success', 'looks the same', color);
       const rejected = preset.rejected.length ? `; includes ${paint('failure', preset.rejected.join(', '), color)}, which ${preset.rejected.length === 1 ? 'doesn’t' : 'don’t'} fit` : '';
       return [`  ${preset.name}`, size, relative, `${rendering}${rejected}`];
     })));

@@ -270,5 +270,7 @@ describe('customize', () => {
     assert.strictEqual(collapse.status, 'accepted');
     assert.ok(collapse.reasons.some((reason) => reason.level === 'check'));
     assert.ok(!collapse.reasons.some((reason) => reason.message === 'Looks the same where checks were needed'));
+    const withPresets = await customize(pagePoem, { renderer });
+    assert.deepStrictEqual(withPresets.presets.map((preset) => [preset.failing, preset.inconclusive]), [[0, 1], [0, 1]]);
   });
 });
