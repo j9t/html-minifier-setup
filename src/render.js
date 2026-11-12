@@ -58,11 +58,40 @@ const TYPES = {
 const describeViewport = ({ width, height }) => `${width}×${height}`;
 
 /**
+ * Settles as the page work does, or rejects where it takes longer than a responsive page would
+ * @template T
+ * @param {Promise<T>} work
+ * @param {number} limit
+ * @returns {Promise<T>}
+ */
+async function responsive(work, limit) {
+  /** @type {NodeJS.Timeout | undefined} */
+  let timer;
+  // The work rejects as its context closes, which is no longer of interest
+  work.catch(() => {});
+  try {
+    return await Promise.race([work, new Promise((_, reject) => {
+      timer = setTimeout(() => reject(new Error(`Page stopped responding (no answer within ${limit} ms)`)), limit);
+    })]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
  * Serves a directory on a local port, so that pages load their resources as on the web
  * @param {string | null} root
+ * @param {{followLinks?: boolean}} [settings] `followLinks`: serve what symbolic links lead to outside the root
  * @returns {Promise<{origin: string, close: () => Promise<void>}>}
  */
-export async function serve(root) {
+export async function serve(root, { followLinks = false } = {}) {
+  const rootReal = root ? await fs.promises.realpath(root).catch(() => null) : null;
+  /** @param {string} file */
+  const read = async (file) => {
+    if (followLinks) return fs.promises.readFile(file);
+    const fileReal = await fs.promises.realpath(file);
+    return rootReal && isInside(rootReal, fileReal) ? fs.promises.readFile(fileReal) : null;
+  };
   const server = http.createServer(async (request, response) => {
     let pathname;
     try {
@@ -72,7 +101,7 @@ export async function serve(root) {
       return;
     }
     const file = root ? path.join(root, pathname.endsWith('/') ? `${pathname}index.html` : pathname) : null;
-    const body = root && file && isInside(root, file) ? await fs.promises.readFile(file).catch(() => null) : null;
+    const body = root && file && isInside(root, file) ? await read(file).catch(() => null) : null;
     if (!body || !file) {
       response.writeHead(404).end();
       return;
@@ -166,10 +195,10 @@ export function createLimit(limit) {
 
 /**
  * A renderer using the first browser that starts, or, where none does, why not
- * @param {{viewports?: Viewport[], timeout?: number, browsers?: Browser[], concurrency?: number}} [settings] `concurrency`: pages rendered at once
+ * @param {{viewports?: Viewport[], timeout?: number, browsers?: Browser[], concurrency?: number, followLinks?: boolean}} [settings] `concurrency`: pages rendered at once; `followLinks`: as for `serve`
  * @returns {Promise<{renderer: Renderer | null, reason: string, missing?: boolean}>}
  */
-export async function createRenderer({ viewports = VIEWPORTS_DEFAULT, timeout = 30000, browsers = BROWSERS, concurrency = CONCURRENCY_DEFAULT } = {}) {
+export async function createRenderer({ viewports = VIEWPORTS_DEFAULT, timeout = 30000, browsers = BROWSERS, concurrency = CONCURRENCY_DEFAULT, followLinks = false } = {}) {
   if (!viewports.length || viewports.some(({ width, height }) => !(width >= 1 && height >= 1))) {
     throw new Error(`Invalid viewports: ${JSON.stringify(viewports)} (at least one, each at least 1×1)`);
   }
@@ -208,7 +237,7 @@ export async function createRenderer({ viewports = VIEWPORTS_DEFAULT, timeout = 
     if (page.url) return page.url;
     let server = servers.get(page.root);
     if (!server) {
-      server = serve(page.root);
+      server = serve(page.root, { followLinks });
       servers.set(page.root, server);
     }
     return `${(await server).origin}/${page.id.split('/').map(encodeURIComponent).join('/')}`;
@@ -236,15 +265,15 @@ export async function createRenderer({ viewports = VIEWPORTS_DEFAULT, timeout = 
         await tab.route((target) => target.href === urlRequested.href, (route) => route.fulfill({ status: 200, contentType: 'text/html; charset=utf-8', body: html }));
         await tab.goto(url, { waitUntil: 'load', timeout });
         // For fonts and two frames, but not beyond the timeout, as either may never come
-        await tab.evaluate(async (wait) => {
+        await responsive(tab.evaluate(async (wait) => {
           const settled = (async () => {
             await document.fonts?.ready;
             await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
           })();
           await Promise.race([settled, new Promise((resolve) => setTimeout(resolve, wait))]);
-        }, timeout);
+        }, timeout), 2 * timeout);
         const shot = await tab.screenshot({ fullPage: true, animations: 'disabled', caret: 'hide', timeout });
-        const text = await tab.evaluate(() => document.body?.innerText ?? '');
+        const text = await responsive(tab.evaluate(() => document.body?.innerText ?? ''), timeout);
         return { shot, text, errors };
       } finally {
         await context.close();

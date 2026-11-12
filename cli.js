@@ -9,7 +9,7 @@ import { splitConfig } from './src/catalog.js';
 import { paint, supportsColor } from './src/color.js';
 import { loadEquivalence } from './src/equivalence.js';
 import { METRICS } from './src/measure.js';
-import { EXTENSIONS_DEFAULT, loadPages } from './src/pages.js';
+import { EXTENSIONS_DEFAULT, findOutsideLinks, loadPages } from './src/pages.js';
 import { createProgress } from './src/progress.js';
 import { CONCURRENCY_DEFAULT, createRenderer, installChromium, VIEWPORTS_DEFAULT } from './src/render.js';
 import { formatReport, toConfig, toPresetConfig } from './src/report.js';
@@ -72,6 +72,7 @@ const program = new Command()
   .option('--no-presets', 'Skip comparing with HTML Minifier’s presets')
   .option('--viewports <list>', 'Viewports to render at', viewports, VIEWPORTS_DEFAULT)
   .option('--concurrency <count>', 'Pages to render at once', positiveInteger, CONCURRENCY_DEFAULT)
+  .option('--follow-links', 'Follow symbolic links outside the site in the render check, without asking (do so only for sites you trust)')
   .option('--json', 'Print the full result as JSON')
   .option('-v, --verbose', 'Show every page and viewport in details, progress line by line where STDERR isn’t a terminal, and more notes')
   .action(async (inputs, settings, command) => {
@@ -95,14 +96,18 @@ const program = new Command()
     const pages = await loadPages(inputs, { extensions: fromConfig('fileExt'), ignore: fromConfig('ignoreDir'), sample: settings.sample });
     if (!pages.length) throw new Error(`No pages found in ${inputs.join(', ')}`);
 
+    const links = settings.render && !settings.followLinks ? await confirmLinks(pages, fromConfig('ignoreDir'), interactive) : { follow: settings.followLinks, links: [] };
+    const followLinks = settings.render && links.follow;
+    const linksNotFollowed = links.follow ? [] : links.links;
+    const settingsRenderer = { viewports: settings.viewports, concurrency: settings.concurrency, followLinks };
     if (settings.render) progress.update({ phase: 'start' });
-    let rendering = settings.render ? await createRenderer({ viewports: settings.viewports, concurrency: settings.concurrency }) : { renderer: null, reason: 'skipped as asked' };
+    let rendering = settings.render ? await createRenderer(settingsRenderer) : { renderer: null, reason: 'skipped as asked' };
     if ('missing' in rendering && rendering.missing && interactive) {
       progress.stop({ ok: false });
       const download = await withPrompt(async (ask) => isYes(await ask('No browser found for the render check. Download Chromium (about 150 MB)? (y/N) ')));
       if (download && await installChromium()) {
         progress.update({ phase: 'start' });
-        rendering = await createRenderer({ viewports: settings.viewports, concurrency: settings.concurrency });
+        rendering = await createRenderer(settingsRenderer);
       }
     }
     const { renderer, reason } = rendering;
@@ -122,11 +127,11 @@ const program = new Command()
       // Sets the finished phases apart from the report
       if (progress.stop() && process.stdout.isTTY) console.log('');
       if (settings.json) {
-        console.log(JSON.stringify(result, null, 2));
+        console.log(JSON.stringify({ ...result, linksNotFollowed }, null, 2));
         return;
       }
       const color = supportsColor(process.stdout);
-      console.log(formatReport(result, { renderReason: reason, color, verbose: settings.verbose }));
+      console.log(formatReport(result, { renderReason: reason, linksNotFollowed, color, verbose: settings.verbose }));
       const config = toConfig(result, preserved);
       if (settings.output) {
         const fileOutput = settings.output === true ? CONFIG_FILE_DEFAULT : settings.output;
@@ -140,6 +145,24 @@ const program = new Command()
       await renderer?.close();
     }
   });
+
+/**
+ * Symbolic links outside the site to follow or not, as a page’s scripts could send on what they
+ * lead to: asked where there are any, and not followed where nobody can answer
+ * @param {import('./src/pages.js').Page[]} pages
+ * @param {string[]} ignore
+ * @param {boolean} interactive
+ */
+async function confirmLinks(pages, ignore, interactive) {
+  const roots = [...new Set(pages.flatMap(({ root }) => root ? [root] : []))];
+  const links = (await Promise.all(roots.map((root) => findOutsideLinks(root, ignore)))).flat()
+    .map(({ link, target }) => ({ link: path.relative(process.cwd(), link), target }));
+  if (!links.length || !interactive) return { follow: false, links };
+  progress.stop();
+  const named = `${links.slice(0, 3).map(({ link, target }) => `${link} → ${target}`).join(', ')}${links.length > 3 ? `, and ${links.length - 3} more` : ''}`;
+  const follow = await withPrompt(async (ask) => isYes(await ask(`The site links to files outside it (${named}). Follow these links in the render check? Only do so for sites you trust, as their scripts could send on what the links lead to (y/N) `)));
+  return { follow, links };
+}
 
 /**
  * Asks on the terminal whether to save the configuration and install HTML Minifier

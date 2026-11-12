@@ -153,6 +153,21 @@ describe('CLI', () => {
     }
   });
 
+  test('Lists symbolic links outside the site that the render check doesn’t follow, unless asked to', async (t) => {
+    await inDir({ 'index.html': '<!doctype html><p>a</p>' }, async (dir) => {
+      try {
+        await fs.promises.symlink(path.join(dirSite, 'css', 'site.css'), path.join(dir, 'site.css'));
+      } catch (err) {
+        t.skip(`No symbolic links: ${err instanceof Error ? err.message : err}`);
+        return;
+      }
+      const blocked = await run([dir, '--no-equivalence', '--no-presets', '--json'], dir);
+      assert.deepStrictEqual(JSON.parse(blocked.stdout).linksNotFollowed, [{ link: 'site.css', target: path.join(dirSite, 'css', 'site.css') }]);
+      const followed = await run([dir, '--no-equivalence', '--no-presets', '--json', '--follow-links'], dir);
+      assert.deepStrictEqual(JSON.parse(followed.stdout).linksNotFollowed, []);
+    });
+  });
+
   test('Fails on inputs without pages', async () => {
     const { code, stderr } = await run([path.join(dirSite, 'css'), '--no-render']);
     assert.strictEqual(code, 1);

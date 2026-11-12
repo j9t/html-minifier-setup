@@ -2,10 +2,11 @@ import { presets as PRESETS } from 'html-minifier';
 import { VISIBLE_BY_DESIGN } from './catalog.js';
 import { paint } from './color.js';
 import { METRICS } from './measure.js';
+import { MESSAGE_RENDERS_SAME } from './select.js';
 
 export const URL_SCHEMA = 'https://raw.githubusercontent.com/j9t/html-minifier/main/html-minifier.schema.json';
 
-const MAX_PAGES_LISTED = 3;
+const MAX_LISTED = 3;
 
 // Render differences, worded so as not to read as errors
 const LABEL_RENDER = 'looks different';
@@ -90,10 +91,10 @@ function sharedFolder(pages) {
   return length ? `${first.slice(0, length).join('/')}/` : '';
 }
 
-/** @param {string[]} pages */
-const listPages = (pages) => pages.length > MAX_PAGES_LISTED
-  ? `${pages.slice(0, MAX_PAGES_LISTED).join(', ')}, and ${pages.length - MAX_PAGES_LISTED} more`
-  : pages.join(', ');
+/** @param {string[]} items */
+const listShort = (items) => items.length > MAX_LISTED
+  ? `${items.slice(0, MAX_LISTED).join(', ')}, and ${items.length - MAX_LISTED} more`
+  : items.join(', ');
 
 /**
  * Reasons as lines, summing up render differences by pages (with an example) and other reasons
@@ -120,7 +121,7 @@ function condenseReasons(reasons) {
         lines.push(`${LABEL_RENDER} · same ${count}`);
       } else {
         const example = /** @type {import('./select.js').Reason} */ (run.find((reason) => reason.message.includes('“')) ?? run[0]);
-        lines.push(`${LABEL_RENDER} · ${count} (${listPages(pages)}), e.g., ${example.page ? `${example.page}: ` : ''}${example.message}`);
+        lines.push(`${LABEL_RENDER} · ${count} (${listShort(pages)}), e.g., ${example.page ? `${example.page}: ` : ''}${example.message}`);
       }
       pagesRenderedBefore = pages.join('\u0000');
       continue;
@@ -134,7 +135,7 @@ function condenseReasons(reasons) {
       byMessage.set(key, entry);
     }
     for (const { level: levelEntry, message, pages } of byMessage.values()) {
-      lines.push(`${levelEntry}${pages.length ? ` · ${listPages(pages)}` : ''}: ${message}`);
+      lines.push(`${levelEntry}${pages.length ? ` · ${listShort(pages)}` : ''}: ${message}`);
     }
   }
   return lines;
@@ -150,26 +151,34 @@ function table(rows) {
 
 /**
  * @param {import('./select.js').Result} result
- * @param {{renderReason?: string, color?: boolean, verbose?: boolean}} [settings]
+ * @param {{renderReason?: string, linksNotFollowed?: {link: string, target: string}[], color?: boolean, verbose?: boolean}} [settings]
  * @returns {string}
  */
-export function formatReport(result, { renderReason = '', color = false, verbose = false } = {}) {
+export function formatReport(result, { renderReason = '', linksNotFollowed = [], color = false, verbose = false } = {}) {
   const { metric } = result;
   const dirShared = sharedFolder(result.pages);
   const evaluations = result.evaluations.map((evaluation) => ({
     ...evaluation,
     reasons: evaluation.reasons.map((reason) => reason.page?.startsWith(dirShared) ? { ...reason, page: reason.page.slice(dirShared.length) } : reason)
+      .map((reason) => linksNotFollowed.length && reason.message === MESSAGE_RENDERS_SAME ? { ...reason, message: `${reason.message}, but without files outside the site` } : reason)
   })).sort((a, b) =>
     ORDER_STATUS.indexOf(a.status) - ORDER_STATUS.indexOf(b.status) ||
     (b.contribution ?? b.savings) - (a.contribution ?? a.savings) ||
     a.name.localeCompare(b.name));
 
+  const renderedAs = `Render-checked in ${result.browser ?? 'Chromium'}${result.viewports.length ? ` at ${result.viewports.join(' and ')}` : ''}`;
+  const renderSummary = !result.renderedSame
+    ? paint('warning', `${renderedAs}: The recommended configuration may not look the same as the original pages (see notes)`, color)
+    : linksNotFollowed.length
+      ? paint('warning', `${renderedAs}: The recommended configuration may not look the same as the original pages, as files outside the site were missing`, color)
+      : `${renderedAs}: The recommended configuration looks the same as the original pages`;
   const lines = [
-    `Evaluated ${result.pages.length} page${result.pages.length === 1 ? '' : 's'}${dirShared ? ` in ${dirShared}` : ''}, judging gains by ${metric === 'raw' ? 'uncompressed' : metric} size`,
+    `• Evaluated ${result.pages.length} page${result.pages.length === 1 ? '' : 's'}${dirShared ? ` in ${dirShared}` : ''}, judging gains by ${metric === 'raw' ? 'uncompressed' : metric} size`,
     result.rendered
-      ? `Render-checked in ${result.browser ?? 'Chromium'}${result.viewports.length ? ` at ${result.viewports.join(' and ')}` : ''}: ${result.renderedSame ? 'The recommended configuration looks the same as the original pages' : 'The recommended configuration may not look the same as the original pages (see notes)'}`
-      : `Not render-checked${renderReason ? `: ${renderReason}` : ''}—options that need a render check aren’t recommended`,
-    result.equivalence ? `Equivalence-checked with ${result.equivalence}` : 'Not equivalence-checked',
+      ? `• ${renderSummary}`
+      : `• Not render-checked${renderReason ? `: ${renderReason}` : ''}—options that need a render check aren’t recommended`,
+    ...result.rendered && linksNotFollowed.length ? [`• ${paint('warning', `Rendered without the files of ${linksNotFollowed.length} symbolic link${linksNotFollowed.length === 1 ? ' that leads' : 's that lead'} outside the site (${listShort(linksNotFollowed.map(({ link }) => link))}), which may change how pages look—\`--follow-links\` follows them`, color)}`] : [],
+    result.equivalence ? `• Equivalence-checked with ${result.equivalence}` : '• Not equivalence-checked',
     '',
     table([
       ['Option', 'Status', 'Saves alone', 'Contributes', 'Variant'],
@@ -201,7 +210,7 @@ export function formatReport(result, { renderReason = '', color = false, verbose
           : preset.inconclusive
             ? `inconclusive on ${preset.inconclusive} ${ofPages}`
             : paint('success', preset.errors ? `looks the same on the other ${checked} page${checked === 1 ? '' : 's'}` : 'looks the same', color);
-      const rejected = preset.rejected.length ? `; includes ${paint('failure', preset.rejected.join(', '), color)}, which ${preset.rejected.length === 1 ? 'doesn’t' : 'don’t'} fit` : '';
+      const rejected = preset.rejected.length ? `; includes ${paint('failure', preset.rejected.map((name) => `\`${name}\``).join(', '), color)}, which ${preset.rejected.length === 1 ? 'doesn’t' : 'don’t'} fit` : '';
       return [`  ${preset.name}`, size, relative, `${rendering}${rejected}`];
     })));
   }
@@ -234,7 +243,7 @@ export function formatReport(result, { renderReason = '', color = false, verbose
     if (condensed) lines.push('  (Run with `-v` for every page and viewport)');
   }
   if (result.notes.length) {
-    lines.push('', 'Notes:', ...result.notes.map((note) => `  ${note}`));
+    lines.push('', 'Notes:', ...result.notes.map((note) => `• ${note}`));
   }
   lines.push('', 'Checks can show that options change these pages, not that they never will—test the configuration on your site.');
   return lines.join('\n');

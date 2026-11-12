@@ -4,7 +4,7 @@
 export const ESC = '\u001b';
 export const CSI = `${ESC}[`;
 
-const STYLES = { bold: '1', dim: '2', accent: '36', success: '32', failure: '31' };
+const STYLES = { bold: '1', dim: '2', accent: '36', success: '32', warning: '33', failure: '31' };
 
 /**
  * @param {keyof typeof STYLES} name

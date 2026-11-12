@@ -216,7 +216,7 @@ describe('offerSetup', () => {
       const configPreset = { name: 'conservative', changes: ['sortAttributes'], config: { preset: 'conservative', sortAttributes: true } };
       const { ask, questions } = scripted(['y', '', 'y', 'n']);
       await offerSetup({ config: CONFIG, configPreset, cwd: dir, ask, install: fakeInstall().install, log() {} });
-      assert.match(questions[2] ?? '', /Save it as preset “conservative” with 1 change \(sortAttributes\)\?/);
+      assert.match(questions[2] ?? '', /Save it as preset `conservative` with 1 change \(`sortAttributes`\)\?/);
       const config = JSON.parse(await fs.promises.readFile(path.join(dir, 'html-minifier.config.json'), 'utf8'));
       assert.deepStrictEqual(config, configPreset.config);
     });

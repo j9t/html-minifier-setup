@@ -182,7 +182,7 @@ export async function offerSetup({ config, dirProject, configPreset = null, cwd,
     dirTarget = path.resolve(cwd, (await ask(`Folder (${describeDir(dirTarget, cwd)}): `)).trim() || dirTarget);
     const file = path.join(dirTarget, CONFIG_FILE);
     if (!fs.existsSync(file) || isYes(await ask(`Overwrite ${path.relative(cwd, file)}? (y/N) `))) {
-      const asPreset = configPreset && isYes(await ask(`Save it as preset “${configPreset.name}” with ${configPreset.changes.length} change${configPreset.changes.length === 1 ? '' : 's'} (${configPreset.changes.join(', ')})? Same effect, shorter, and follows changes to the preset (y/N) `));
+      const asPreset = configPreset && isYes(await ask(`Save it as preset \`${configPreset.name}\` with ${configPreset.changes.length} change${configPreset.changes.length === 1 ? '' : 's'} (${configPreset.changes.map((name) => `\`${name}\``).join(', ')})? Same effect, shorter, and follows changes to the preset (y/N) `));
       await fs.promises.mkdir(dirTarget, { recursive: true });
       await fs.promises.writeFile(file, `${JSON.stringify(asPreset ? configPreset.config : config, null, 2)}\n`);
       fileConfig = file;

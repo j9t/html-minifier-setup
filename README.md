@@ -20,6 +20,8 @@ Inputs are HTML files, directories, or URLs (default: the current directory). Fr
 
 The render check, which catches most of what static checks can’t, uses Playwright’s Chromium, or else Chrome or Edge, if installed. Where none is found, HTML Minifier Setup offers to download Chromium.
 
+Local pages are served to the browser from their folder. Symbolic links that lead outside it are followed only if you agree (or pass `--follow-links`), as a page’s scripts could send on what they lead to. Where nobody can answer, they aren’t followed.
+
 On a terminal, HTML Minifier Setup then offers to save the recommended configuration (as html-minifier.config.json, in the project of the pages evaluated or a folder of your choice) and, where it isn’t installed yet, to install HTML Minifier there (with the package manager the project uses), or to update it where a newer version is out. All offers default to no. Where one of HTML Minifier’s presets with a few changes has the same effect, it also offers to save the configuration that way—shorter, and following changes to the preset.
 
 ```shell
@@ -45,6 +47,7 @@ npx html-minifier --input-dir ./dist --output-dir ./dist
 | `--no-presets` | Skip comparing with HTML Minifier’s presets |
 | `--viewports <list>` | Viewports to render at (default: `1280x800,390x844`) |
 | `--concurrency <count>` | Pages to render at once, across viewports and options (default: 4) |
+| `--follow-links` | Follow symbolic links outside the site in the render check, without asking (do so only for sites you trust) |
 | `--json` | Print the full result as JSON |
 | `-v, --verbose` | Show every page and viewport in details (rather than a summary with an example), more notes, and progress line by line where STDERR isn’t a terminal |
 

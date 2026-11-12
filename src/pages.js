@@ -157,6 +157,34 @@ async function walk(dir, extensions, ignore) {
 }
 
 /**
+ * Symbolic links under the root that lead outside it, which the render check follows only where
+ * allowed, as a page’s scripts could send on what they lead to
+ * @param {string} root
+ * @param {string[]} [ignore]
+ * @returns {Promise<{link: string, target: string}[]>}
+ */
+export async function findOutsideLinks(root, ignore = ['node_modules']) {
+  const rootReal = await fs.promises.realpath(root);
+  /** @type {{link: string, target: string}[]} */
+  const links = [];
+  /** @param {string} dir */
+  const visit = async (dir) => {
+    for (const entry of await fs.promises.readdir(dir, { withFileTypes: true }).catch(() => [])) {
+      if (entry.name.startsWith('.') || ignore.includes(entry.name)) continue;
+      const link = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        await visit(link);
+      } else if (entry.isSymbolicLink()) {
+        const target = await fs.promises.realpath(link).catch(() => null);
+        if (target && !isInside(rootReal, target)) links.push({ link, target });
+      }
+    }
+  };
+  await visit(root);
+  return links;
+}
+
+/**
  * Reads pages from files, directories, and URLs
  * @param {string[]} inputs
  * @param {{extensions?: string[], ignore?: string[], sample?: number}} [settings]

@@ -1,6 +1,7 @@
 import { after, before, describe, test } from 'node:test';
 import assert from 'node:assert';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createPage, loadPages } from '../src/pages.js';
@@ -89,6 +90,16 @@ describe('createRenderer', { skip: renderer ? false : `No browser: ${reason}` },
     }
   });
 
+  test('Rejects captures of pages that stop responding after loading, instead of waiting for them', async () => {
+    const found = await createRenderer({ viewports: [{ width: 800, height: 600 }], timeout: 1000 });
+    try {
+      const html = '<!doctype html><p>a</p><script>addEventListener("load", () => setTimeout(() => { for (;;); }, 0))</script>';
+      await assert.rejects(/** @type {import('../src/render.js').Renderer} */ (found.renderer).compare(createPage({ id: 'a.html', html }), html), /stopped responding/);
+    } finally {
+      await found.renderer?.close();
+    }
+  });
+
   test('Ignores script errors the original has, too', async () => {
     const page = createPage({ id: 'c.html', html: '<!doctype html><p>a</p><script>nope()</script>' });
     const verdict = await r.compare(page, '<!doctype html><p>a</p><script>nope()</script>');
@@ -134,5 +145,35 @@ describe('serve', () => {
       await server.close();
     }
     assert.deepStrictEqual(statuses, [200, 400, 404, 404]);
+  });
+
+  test('Serves files that symbolic links lead to outside the root only where allowed', async (t) => {
+    const dir = await fs.promises.realpath(await fs.promises.mkdtemp(path.join(os.tmpdir(), 'hms-serve-')));
+    try {
+      const dirRoot = path.join(dir, 'site');
+      await fs.promises.mkdir(dirRoot);
+      await fs.promises.writeFile(path.join(dir, 'secret.txt'), 'secret');
+      await fs.promises.writeFile(path.join(dirRoot, 'index.html'), '<p>a');
+      try {
+        await fs.promises.symlink(path.join(dir, 'secret.txt'), path.join(dirRoot, 'data.txt'));
+        await fs.promises.symlink(path.join(dirRoot, 'index.html'), path.join(dirRoot, 'home.html'));
+      } catch (err) {
+        t.skip(`No symbolic links: ${err instanceof Error ? err.message : err}`);
+        return;
+      }
+      /** @type {number[]} */
+      const statuses = [];
+      for (const followLinks of [false, true]) {
+        const server = await serve(dirRoot, { followLinks });
+        try {
+          for (const pathname of ['/data.txt', '/home.html']) statuses.push((await fetch(`${server.origin}${pathname}`)).status);
+        } finally {
+          await server.close();
+        }
+      }
+      assert.deepStrictEqual(statuses, [404, 200, 200, 200]);
+    } finally {
+      await fs.promises.rm(dir, { recursive: true, force: true });
+    }
   });
 });

@@ -69,7 +69,7 @@ import { sizeOf, sumSizes } from './measure.js';
 
 const MAX_RENDER_ROUNDS = 12;
 const MAX_REASONS_PER_PAGE = 2;
-const MESSAGE_RENDERS_SAME = 'Looks the same where checks were needed';
+export const MESSAGE_RENDERS_SAME = 'Looks the same where checks were needed';
 
 // Lets timers run, such as a progress indicator’s, between stretches of synchronous work
 const yieldTurn = () => new Promise((resolve) => setImmediate(resolve));

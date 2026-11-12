@@ -1,6 +1,7 @@
 import { describe, test } from 'node:test';
 import assert from 'node:assert';
 import { formatReport, toPresetConfig } from '../src/report.js';
+import { MESSAGE_RENDERS_SAME } from '../src/select.js';
 
 const ESC = '\u001b';
 const SIZES = { raw: 1000, gzip: 400, brotli: 300 };
@@ -53,6 +54,40 @@ describe('formatReport', () => {
     assert.doesNotMatch(plain, /minified already/);
   });
 
+  test('Names symbolic links the render check didn’t follow, no longer calling pages the same, as their files may change the outcome', () => {
+    const result = resultOf({ raw: 900, gzip: 400, brotli: 300 }, [{ reasons: [{ level: 'check', page: 'index.html', message: 'Collapses whitespace that CSS keeps' }, { level: 'info', message: MESSAGE_RENDERS_SAME }] }]);
+    result.rendered = true;
+    result.renderedSame = true;
+    const links = ['a.css', 'b.css', 'c.css', 'fonts'].map((link) => ({ link, target: `/elsewhere/${link}` }));
+    const report = formatReport(result, { linksNotFollowed: links });
+    assert.match(report, /: The recommended configuration may not look the same as the original pages, as files outside the site were missing\n/);
+    assert.match(report, /: The recommended configuration may not look the same as the original pages, as files outside the site were missing\n• Rendered without the files of 4 symbolic links that lead outside the site \(a\.css, b\.css, c\.css, and 1 more\), which may change how pages look—`--follow-links` follows them\n• Not equivalence-checked\n/);
+    assert.match(report, /info: Looks the same where checks were needed, but without files outside the site\n/);
+    const reportFollowed = formatReport(result);
+    assert.doesNotMatch(reportFollowed, /symbolic links|outside the site/);
+    assert.match(reportFollowed, /: The recommended configuration looks the same as the original pages\n/);
+  });
+
+  test('Marks the text of lines that warn the rendering may differ in yellow, where colored', () => {
+    const result = resultOf({ raw: 900, gzip: 400, brotli: 300 });
+    result.rendered = true;
+    result.renderedSame = true;
+    const links = [{ link: 'a.css', target: '/elsewhere/a.css' }];
+    const lines = formatReport(result, { linksNotFollowed: links, color: true }).split('\n');
+    assert.deepStrictEqual(lines.filter((line) => line.includes(`${ESC}[33m`)).map((line) => line.replace(new RegExp(`${ESC}\\[\\d+m`, 'g'), '').slice(0, 20)), ['• Render-checked in ', '• Rendered without t']);
+    assert.ok(lines.filter((line) => line.includes(`${ESC}[33m`)).every((line) => line.startsWith(`• ${ESC}[33m`)));
+    result.renderedSame = false;
+    assert.match(formatReport(result, { color: true }), new RegExp(`• ${ESC}\\[33mRender-checked .*may not look the same`));
+    result.renderedSame = true;
+    assert.ok(!formatReport(result, { color: true }).includes(`${ESC}[33m`));
+  });
+
+  test('Lists notes with markers', () => {
+    const result = resultOf({ raw: 900, gzip: 400, brotli: 300 });
+    result.notes = ['First note', 'Second note'];
+    assert.match(formatReport(result), /\nNotes:\n• First note\n• Second note\n/);
+  });
+
   test('Compares the result with presets', () => {
     const result = resultOf({ raw: 900, gzip: 400, brotli: 300 });
     result.presets = [
@@ -60,7 +95,7 @@ describe('formatReport', () => {
       { name: 'comprehensive', size: 380, failing: 1, inconclusive: 0, errors: 0, rejected: [] }
     ];
     const report = formatReport(result);
-    assert.match(report, /conservative +440 B +10\.0% larger +looks the same; includes removeComments, which doesn’t fit/);
+    assert.match(report, /conservative +440 B +10\.0% larger +looks the same; includes `removeComments`, which doesn’t fit/);
     assert.match(report, /comprehensive +380 B +5\.0% smaller +looks different on 1 of 1 page/);
   });
 
@@ -165,6 +200,7 @@ describe('formatReport paths', () => {
     result.pages = ['blog/a.html', 'index.html'];
     const report = formatReport(result);
     assert.match(report, /Evaluated 2 pages, judging/);
+    assert.match(report, /^• Evaluated 2 pages, judging gains by gzip size\n• Not render-checked.*\n• Not equivalence-checked\n\n/);
     assert.match(report, /risk · blog\/a\.html: /);
   });
 });

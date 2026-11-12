@@ -5,7 +5,7 @@ import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { createPage, loadPages, samplePaths } from '../src/pages.js';
+import { createPage, findOutsideLinks, loadPages, samplePaths } from '../src/pages.js';
 
 const dirSite = path.join(path.dirname(fileURLToPath(import.meta.url)), 'fixtures', 'site');
 
@@ -103,6 +103,35 @@ describe('Page resources', () => {
   test('Returns null for every reference of in-memory pages', async () => {
     const page = createPage({ id: 'memory', html: '<p>a' });
     assert.strictEqual(await page.load('a.css'), null);
+  });
+});
+
+describe('findOutsideLinks', () => {
+  test('Finds symbolic links that lead outside the root, skipping ignored directories and links within the root', async (t) => {
+    const dir = await fs.promises.realpath(await fs.promises.mkdtemp(path.join(os.tmpdir(), 'hms-links-')));
+    try {
+      const dirRoot = path.join(dir, 'site');
+      await fs.promises.mkdir(path.join(dirRoot, 'node_modules'), { recursive: true });
+      await fs.promises.mkdir(path.join(dir, 'shared'));
+      await fs.promises.writeFile(path.join(dir, 'secret.txt'), 'secret');
+      await fs.promises.writeFile(path.join(dirRoot, 'index.html'), '<p>a');
+      try {
+        await fs.promises.symlink(path.join(dir, 'secret.txt'), path.join(dirRoot, 'data.txt'));
+        await fs.promises.symlink(path.join(dir, 'shared'), path.join(dirRoot, 'shared'), 'dir');
+        await fs.promises.symlink(path.join(dirRoot, 'index.html'), path.join(dirRoot, 'home.html'));
+        await fs.promises.symlink(path.join(dir, 'secret.txt'), path.join(dirRoot, 'node_modules', 'data.txt'));
+      } catch (err) {
+        t.skip(`No symbolic links: ${err instanceof Error ? err.message : err}`);
+        return;
+      }
+      const links = await findOutsideLinks(dirRoot);
+      assert.deepStrictEqual(links.sort((a, b) => a.link.localeCompare(b.link)), [
+        { link: path.join(dirRoot, 'data.txt'), target: path.join(dir, 'secret.txt') },
+        { link: path.join(dirRoot, 'shared'), target: path.join(dir, 'shared') }
+      ]);
+    } finally {
+      await fs.promises.rm(dir, { recursive: true, force: true });
+    }
   });
 });
 
