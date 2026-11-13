@@ -19,7 +19,7 @@ describe('Benchmark helpers', () => {
   });
 });
 
-describe('createPhaseTimer', () => {
+describe('`createPhaseTimer`', () => {
   test('Adds up time per phase as phases change and recur', () => {
     let clock = 0;
     const timer = createPhaseTimer(() => clock);
@@ -37,7 +37,7 @@ describe('createPhaseTimer', () => {
   });
 });
 
-describe('parseArgs and baselineMismatches', () => {
+describe('`parseArgs` and `baselineMismatches`', () => {
   test('Defaults to the fixtures, rendered', () => {
     const args = parseArgs([]);
     assert.match(args.inputs[0] ?? '', /fixtures[\\/]site$/);
@@ -56,7 +56,7 @@ describe('parseArgs and baselineMismatches', () => {
   });
 });
 
-describe('main', () => {
+describe('`main`', () => {
   test('Times phases and saves a baseline to compare later runs with', async () => {
     const dirWork = fs.mkdtempSync(path.join(os.tmpdir(), 'hms-benchmark-'));
     try {

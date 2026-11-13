@@ -10,7 +10,7 @@ import { combineOriginals, createLimit, createRenderer, playwrightCli, serve } f
 const dirSite = path.join(path.dirname(fileURLToPath(import.meta.url)), 'fixtures', 'site');
 const { renderer, reason } = await createRenderer({ viewports: [{ width: 800, height: 600 }] });
 
-describe('createRenderer browsers', () => {
+describe('`createRenderer` browsers', () => {
   test('Falls back to other browsers where one doesn’t start, naming the one used', { skip: renderer ? false : `No browser: ${reason}` }, async () => {
     const found = await createRenderer({ browsers: [{ name: 'Nothing', channel: 'nonexistent' }, { name: 'Edge', channel: 'msedge' }, { name: 'Chromium' }, { name: 'Chrome', channel: 'chrome' }] });
     assert.match(found.renderer?.browser ?? '', /^(Edge|Chromium|Chrome) \d+/);
@@ -35,7 +35,7 @@ describe('createRenderer browsers', () => {
   });
 });
 
-describe('createRenderer', { skip: renderer ? false : `No browser: ${reason}` }, () => {
+describe('`createRenderer`', { skip: renderer ? false : `No browser: ${reason}` }, () => {
   /** @type {import('../src/render.js').Renderer} */
   let r;
   before(() => { r = /** @type {import('../src/render.js').Renderer} */ (renderer); });
@@ -128,7 +128,7 @@ describe('createRenderer', { skip: renderer ? false : `No browser: ${reason}` },
     assert.strictEqual(verdict.equal, true);
   });
 });
-describe('createLimit', () => {
+describe('`createLimit`', () => {
   test('Runs no more functions at once than allowed, in the order given, passing on results', async () => {
     const limit = createLimit(2);
     let active = 0;
@@ -154,7 +154,7 @@ describe('createLimit', () => {
   });
 });
 
-describe('combineOriginals', () => {
+describe('`combineOriginals`', () => {
   test('Keeps files either load of the original didn’t get, telling what stayed the same between loads', () => {
     const first = { shot: Buffer.from('a'), text: 'a', errors: [], blocked: ['a.css'] };
     const second = { shot: Buffer.from('a'), text: 'b', errors: [], blocked: ['a.css', 'b.css'] };
@@ -166,7 +166,7 @@ describe('combineOriginals', () => {
   });
 });
 
-describe('serve', () => {
+describe('`serve`', () => {
   test('Serves files within the root, answering malformed paths and paths outside the root with client errors', async () => {
     const server = await serve(dirSite);
     /** @type {number[]} */

@@ -23,7 +23,7 @@ const fakeStream = (isTTY) => {
 const ESC = '\u001b';
 const RE_ANSI = new RegExp(`${ESC}\\[[\\d;?]*[A-Za-z]`);
 
-describe('formatLine', () => {
+describe('`formatLine`', () => {
   test('Shows the phase, a bar, the share done, the detail, and the time taken', () => {
     const line = formatLine({ title: 'Evaluating options', detail: 'removeComments', current: 13, total: 26, elapsed: 83000, frame: 0, columns: 100, color: false });
     assert.match(line, /Evaluating options/);
@@ -63,7 +63,7 @@ describe('formatLine', () => {
   });
 });
 
-describe('createProgress', () => {
+describe('`createProgress`', () => {
   test('Animates on terminals and restores the cursor when done', () => {
     const stream = fakeStream(true);
     const progress = createProgress({ stream, color: false });

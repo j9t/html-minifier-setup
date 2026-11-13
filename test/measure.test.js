@@ -2,7 +2,7 @@ import { describe, test } from 'node:test';
 import assert from 'node:assert';
 import { addSizes, measure, sizeOf, sumSizes } from '../src/measure.js';
 
-describe('measure', () => {
+describe('`measure`', () => {
   test('Counts raw bytes as UTF-8', async () => {
     assert.strictEqual((await measure('aé')).raw, 3);
   });
@@ -24,7 +24,7 @@ describe('measure', () => {
   });
 });
 
-describe('addSizes and sumSizes', () => {
+describe('`addSizes` and `sumSizes`', () => {
   test('Add per metric', () => {
     const a = { raw: 10, gzip: 5, brotli: 4 };
     const b = { raw: 3, gzip: 2, brotli: 1 };

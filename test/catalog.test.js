@@ -3,7 +3,7 @@ import assert from 'node:assert';
 import { CANDIDATES, CARRIED, EXCLUDED, FALLBACKS, MODIFIERS, PRESERVED, readSchema, splitConfig, unclassified } from '../src/catalog.js';
 const names = CANDIDATES.map((candidate) => candidate.name);
 
-describe('catalog', () => {
+describe('`catalog`', () => {
   test('Classifies every option of the installed HTML Minifier', () => {
     const schema = readSchema();
     assert.ok(schema && schema.options.length > 0);
@@ -39,7 +39,7 @@ describe('catalog', () => {
   });
 });
 
-describe('splitConfig', () => {
+describe('`splitConfig`', () => {
   test('Carries input handling options, takes candidate values, keeps CLI settings, and drops the rest', () => {
     const { base, values, preserved, ignored } = splitConfig({
       $schema: 'x',

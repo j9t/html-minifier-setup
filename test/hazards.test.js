@@ -15,7 +15,7 @@ const analyze = (html, files = {}) => analyzePage(createPage({ id: 'test.html', 
  */
 const levels = (hazards, level) => hazards.filter((hazard) => hazard.level === level);
 
-describe('analyzePage', () => {
+describe('`analyzePage`', () => {
   test('Collects strings from inline and linked scripts, and notes scripts it can’t read', async () => {
     const context = await analyze('<script>x("is-open")</script><script src="a.js"></script><script src="https://cdn.example/b.js"></script><button onclick="y(\'on-click\')">', { 'a.js': 'z(`from-file`)' });
     assert.ok(context.scriptStrings.has('is-open'));
@@ -65,7 +65,7 @@ describe('analyzePage', () => {
   });
 });
 
-describe('findHazards', () => {
+describe('`findHazards`', () => {
   test('Asks for a check of whitespace collapsing where CSS keeps whitespace', async () => {
     const context = await analyze('<style>.poem { white-space: pre-line }</style><div class="poem">a\nb</div>');
     assert.strictEqual(levels(findHazards('collapseWhitespace', context, '<div class="poem">a\nb</div>', '<div class="poem">a b</div>'), 'check').length, 1);

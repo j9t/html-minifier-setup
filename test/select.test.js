@@ -38,7 +38,7 @@ const fakeRenderer = (isEqual) => {
   };
 };
 
-describe('customize', () => {
+describe('`customize`', () => {
   test('Accepts options that save bytes and reports those without effect', async () => {
     const result = await customize(pageHome);
     assert.strictEqual(evaluation(result, 'collapseWhitespace').status, 'accepted');

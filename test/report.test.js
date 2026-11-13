@@ -29,7 +29,7 @@ const resultOf = (final, evaluations = []) => ({
   browser: null
 });
 
-describe('formatReport', () => {
+describe('`formatReport`', () => {
   test('Shows savings in green and growth in red, with a sign', () => {
     const report = formatReport(resultOf({ raw: 900, gzip: 410, brotli: 300 }), { color: true });
     assert.match(report, new RegExp(`Uncompressed: .*${ESC}\\[32m−10\\.0%`));
@@ -120,7 +120,7 @@ describe('formatReport', () => {
   });
 });
 
-describe('toPresetConfig', () => {
+describe('`toPresetConfig`', () => {
   test('Expresses the configuration as the nearest preset with the same effect', () => {
     const result = resultOf(SIZES);
     result.options = { caseSensitive: true, collapseBooleanAttributes: true, collapseWhitespace: true, removeComments: true, removeDefaultTypeAttributes: true, sortAttributes: true, useShortDoctype: true };
@@ -144,7 +144,7 @@ describe('toPresetConfig', () => {
   });
 });
 
-describe('formatReport statuses', () => {
+describe('`formatReport` statuses', () => {
   test('Shows statuses in words', () => {
     const report = formatReport(resultOf(SIZES, [{ status: 'no-effect' }, { status: 'no-gain' }, { status: 'accepted' }]));
     assert.match(report, /no effect/);
@@ -155,7 +155,7 @@ describe('formatReport statuses', () => {
   });
 });
 
-describe('formatReport details', () => {
+describe('`formatReport` details', () => {
   /** @type {import('../src/select.js').Reason[]} */
   const reasons = [
     { level: 'render', page: 'a.html', message: 'Text differs at 1280×800: line breaks or spacing changed' },
@@ -186,7 +186,7 @@ describe('formatReport details', () => {
   });
 });
 
-describe('formatReport paths', () => {
+describe('`formatReport` paths', () => {
   test('Shortens page paths by the folder all pages share, naming it once', () => {
     const result = resultOf(SIZES, [{ status: 'rejected', reasons: [{ level: 'risk', page: 'Security/Faq/a.html', message: 'Removes a comment' }] }]);
     result.pages = ['Security/Faq/a.html', 'Security/Faq/b.html'];
@@ -205,7 +205,7 @@ describe('formatReport paths', () => {
   });
 });
 
-describe('formatReport rendering', () => {
+describe('`formatReport` rendering', () => {
   test('Says the recommended configuration looks the same, at which viewports', () => {
     const result = resultOf(SIZES);
     Object.assign(result, { rendered: true, renderedSame: true, viewports: ['1280×800', '390×844'], browser: 'Chrome 157' });

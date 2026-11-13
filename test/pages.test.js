@@ -9,7 +9,7 @@ import { createPage, findOutsideLinks, loadPages, samplePaths } from '../src/pag
 
 const dirSite = path.join(path.dirname(fileURLToPath(import.meta.url)), 'fixtures', 'site');
 
-describe('loadPages', () => {
+describe('`loadPages`', () => {
   test('Finds HTML files in a directory, skipping ignored directories and other files', async () => {
     const pages = await loadPages([dirSite]);
     assert.deepStrictEqual(pages.map((page) => page.id).sort(), ['blog/app.html', 'index.html', 'poem.html']);
@@ -106,7 +106,7 @@ describe('Page resources', () => {
   });
 });
 
-describe('findOutsideLinks', () => {
+describe('`findOutsideLinks`', () => {
   test('Finds symbolic links that lead outside the root, skipping ignored directories and links within the root', async (t) => {
     const dir = await fs.promises.realpath(await fs.promises.mkdtemp(path.join(os.tmpdir(), 'hms-links-')));
     try {
@@ -135,7 +135,7 @@ describe('findOutsideLinks', () => {
   });
 });
 
-describe('samplePaths', () => {
+describe('`samplePaths`', () => {
   test('Returns all paths when there are no more than requested', () => {
     assert.deepStrictEqual(samplePaths(['a', 'b'], 5), ['a', 'b']);
   });

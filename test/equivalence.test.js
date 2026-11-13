@@ -5,7 +5,7 @@ import { loadEquivalence } from '../src/equivalence.js';
 const equivalence = await loadEquivalence();
 const SKIP = equivalence ? false : 'No equivalence check (needs a sibling HTML Minifier checkout)';
 
-describe('loadEquivalence', () => {
+describe('`loadEquivalence`', () => {
   test('Returns a check or nothing, never failing', () => {
     assert.ok(equivalence === null || typeof equivalence.compare === 'function');
   });

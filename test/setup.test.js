@@ -56,7 +56,7 @@ const fakeInstall = () => {
 
 const PACKAGE_HM = JSON.stringify({ name: 'html-minifier', version: '5.1.0' });
 
-describe('findPackage', () => {
+describe('`findPackage`', () => {
   test('Finds a package in node_modules of the directory or above', async () => {
     await inDir({ 'node_modules/html-minifier/package.json': PACKAGE_HM, 'site/dist/index.html': '' }, async (dir) => {
       assert.strictEqual(findPackage('html-minifier', path.join(dir, 'site', 'dist'))?.version, '5.1.0');
@@ -65,7 +65,7 @@ describe('findPackage', () => {
   });
 });
 
-describe('detectPackageManager', () => {
+describe('`detectPackageManager`', () => {
   test('Detects the package manager by lockfile, defaulting to npm', async () => {
     await inDir({ 'pnpm-lock.yaml': '', 'site/index.html': '' }, async (dir) => {
       assert.strictEqual(detectPackageManager(path.join(dir, 'site')), 'pnpm');
@@ -88,7 +88,7 @@ describe('detectPackageManager', () => {
   });
 });
 
-describe('fetchLatestVersion', () => {
+describe('`fetchLatestVersion`', () => {
   test('Returns the latest version from the registry', async () => {
     /** @type {string[]} */
     const urls = [];
@@ -108,7 +108,7 @@ describe('fetchLatestVersion', () => {
   });
 });
 
-describe('isNewer', () => {
+describe('`isNewer`', () => {
   test('Compares versions numerically', () => {
     assert.strictEqual(isNewer('5.10.0', '5.9.1'), true);
     assert.strictEqual(isNewer('5.1.0', '5.1.0'), false);
@@ -126,7 +126,7 @@ describe('isNewer', () => {
   });
 });
 
-describe('projectOf', () => {
+describe('`projectOf`', () => {
   test('Returns the project of the first local input', async () => {
     await inDir({ 'site/package.json': '{}', 'site/dist/index.html': '' }, async (dir) => {
       const dirSite = path.join(dir, 'site');
@@ -153,7 +153,7 @@ describe('projectOf', () => {
   });
 });
 
-describe('offerSetup', () => {
+describe('`offerSetup`', () => {
   test('Does nothing where both offers are declined by default', async () => {
     await inDir({}, async (dir) => {
       const { ask, questions } = scripted([]);
