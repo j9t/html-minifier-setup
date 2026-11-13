@@ -70,7 +70,7 @@ describe('`analyzePage`', () => {
   });
 
   test('Collects rules that keep whitespace from nested rules and conditional group rules', async () => {
-    const context = await analyze('<style>@media print { .a { white-space: pre } } @layer x { @supports (display: grid) { .b { white-space: pre } } } .c { color: red; & .d { white-space: pre } .e { white-space: pre } white-space: pre-line } @keyframes f { from { white-space: pre } }</style>');
+    const context = await analyze('<style>@media print { .a { white-space: pre } } @layer x { @supports (display: grid) { .b { white-space: pre } } } .c { color: red; & .d { white-space: pre } .e { white-space: pre } white-space: pre-line } .g { @nest .h & { white-space: pre } } @keyframes f { from { white-space: pre } }</style>');
     assert.deepStrictEqual(context.whitespaceRules.map((rule) => rule.text), ['.a { white-space: pre }', '.b { white-space: pre }', '& .d { white-space: pre }', '.e { white-space: pre }', '.c { white-space: pre-line }']);
   });
 

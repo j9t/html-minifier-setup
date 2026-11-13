@@ -176,12 +176,11 @@ function readStyles(css) {
     for (const child of children) {
       if (child.type === 'import') {
         imports.push(child.value.url);
-      } else if (child.type === 'style' || child.type === 'nesting') {
-        const style = child.type === 'style' ? child.value : child.value.style;
-        const { declarations = [], importantDeclarations = [] } = style.declarations ?? {};
-        const rule = { selectors: style.selectors, parent, declarations: [...declarations, ...importantDeclarations], selector: selectorAt(style.loc) };
+      } else if (child.type === 'style') {
+        const { declarations = [], importantDeclarations = [] } = child.value.declarations ?? {};
+        const rule = { selectors: child.value.selectors, parent, declarations: [...declarations, ...importantDeclarations], selector: selectorAt(child.value.loc) };
         rules.push(rule);
-        collect(style.rules ?? [], rule);
+        collect(child.value.rules ?? [], rule);
       } else if (child.type === 'nested-declarations' && parent) {
         const { declarations = [], importantDeclarations = [] } = child.value.declarations ?? {};
         rules.push({ ...parent, selectors: [[{ type: 'nesting' }]], parent, declarations: [...declarations, ...importantDeclarations] });
