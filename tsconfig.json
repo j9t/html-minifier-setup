@@ -1,0 +1,17 @@
+{
+  // https://aka.ms/tsconfig
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "extends": "./tsconfig.base.json",
+  "include": [
+    "./benchmark/**/*.js",
+    "./cli.js",
+    "./src/**/*.js"
+  ],
+  "compilerOptions": {
+    // Node type definitions for `process`, `Buffer`, etc.
+    "types": ["node"],
+    // JavaScript support
+    "checkJs": true,
+    "noEmit": true
+  }
+}

@@ -1,0 +1,50 @@
+name: "Tests"
+
+on:
+  push:
+    branches: main
+    paths-ignore: ["**.md"]
+  pull_request:
+    paths-ignore: ["**.md"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    strategy:
+      matrix:
+        platform: [ubuntu-latest]
+        node: ["lts/*", "current"]
+        include:
+          # Windows: One LTS job is enough
+          - platform: windows-latest
+            node: "lts/*"
+    name: "Node ${{ matrix.node }} (${{ matrix.platform }})"
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - name: "Check out repository"
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: "Set up Node.js"
+        uses: actions/setup-node@v7
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - name: "Install dependencies"
+        run: npm ci
+      - name: "Lint"
+        # Lint results don’t vary by platform or Node version
+        if: matrix.platform == 'ubuntu-latest' && matrix.node == 'lts/*'
+        run: npm run lint
+      - name: "Install Chromium"
+        # Render tests skip where no browser is installed; one platform and Node version cover them
+        if: matrix.platform == 'ubuntu-latest' && matrix.node == 'lts/*'
+        run: npx playwright install --with-deps chromium
+      - name: "Run tests"
+        run: npm test

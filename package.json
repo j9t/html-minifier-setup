@@ -1,0 +1,60 @@
+{
+  "author": "Jens Oliver Meiert",
+  "bin": {
+    "hms": "cli.js",
+    "html-minifier-setup": "cli.js"
+  },
+  "bugs": "https://github.com/j9t/html-minifier-setup/issues",
+  "dependencies": {
+    "commander": "^15.1.0",
+    "html-minifier": "^5.1.0",
+    "parse5": "^8.1.1",
+    "playwright": "^1.65.0"
+  },
+  "description": "Configuration wizard for HTML Minifier: Identify the options that save the most on your pages without changing how they render",
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^26.6.6",
+    "eslint": "^10.14.0",
+    "globals": "^17.14.0",
+    "typescript": "^7.0.2"
+  },
+  "engines": {
+    "node": ">=22.13"
+  },
+  "exports": {
+    ".": "./src/index.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "cli.js",
+    "src"
+  ],
+  "funding": "https://github.com/j9t/html-minifier-setup?sponsor=1",
+  "homepage": "https://github.com/j9t/html-minifier-setup",
+  "keywords": [
+    "configuration",
+    "html",
+    "html-minifier",
+    "minification",
+    "minifier",
+    "optimization",
+    "setup"
+  ],
+  "license": "MIT",
+  "name": "html-minifier-setup",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/j9t/html-minifier-setup.git"
+  },
+  "scripts": {
+    "benchmark": "node benchmark/benchmark.js",
+    "lint": "eslint .",
+    "prepare": "git config core.hooksPath .githooks || true",
+    "test": "npm run test:types && node --test \"test/**/*.test.js\"",
+    "test:types": "tsc",
+    "test:watch": "node --test --watch \"test/**/*.test.js\""
+  },
+  "type": "module",
+  "version": "0.1.0"
+}
