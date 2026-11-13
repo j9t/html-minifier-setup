@@ -1,7 +1,6 @@
 import { describe, test } from 'node:test';
 import assert from 'node:assert';
 import { spawn } from 'node:child_process';
-import { pathToFileURL } from 'node:url';
 import { minify } from 'html-minifier';
 import { createMinifierPool } from '../src/workers.js';
 
@@ -42,20 +41,22 @@ describe('`createMinifierPool`', () => {
   });
 
   test('Lets the process exit while idle', async () => {
-    const script = `import { createMinifierPool } from ${JSON.stringify(pathToFileURL(new URL('../src/workers.js', import.meta.url).pathname).href)};
+    const script = `import { createMinifierPool } from ${JSON.stringify(new URL('../src/workers.js', import.meta.url).href)};
 const pool = createMinifierPool({ size: 2 });
 console.log(await pool.minify('<p>a</p>', { collapseWhitespace: true }));`;
-    const { code, stdout } = await new Promise((resolve) => {
+    const { code, stdout, stderr } = await new Promise((resolve) => {
       const child = spawn(process.execPath, ['--input-type=module', '--eval', script]);
       let out = '';
+      let err = '';
       child.stdout.on('data', (chunk) => { out += chunk; });
+      child.stderr.on('data', (chunk) => { err += chunk; });
       const timer = setTimeout(() => child.kill(), 10000);
       child.on('close', (exitCode) => {
         clearTimeout(timer);
-        resolve({ code: exitCode, stdout: out });
+        resolve({ code: exitCode, stdout: out, stderr: err });
       });
     });
-    assert.strictEqual(code, 0);
+    assert.strictEqual(code, 0, stderr);
     assert.strictEqual(stdout.trim(), '<p>a</p>');
   });
 });
