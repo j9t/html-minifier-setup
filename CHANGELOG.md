@@ -4,6 +4,12 @@ All notable changes to HTML Minifier Setup (HMS) are documented in this file, wh
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+* Judged which elements whitespace rules match in linear time, so that crafted selectors (e.g., many unclosed `:x(`) can’t stall the static checks, and by the selector outside nested parentheses
+
 ## [0.2.0] - 2026-11-13
 
 ### Fixed

@@ -103,14 +103,29 @@ function removed(before, after) {
 }
 
 /**
+ * A selector without what parentheses hold, however nested, in linear time
+ * @param {string} selector
+ */
+function withoutArguments(selector) {
+  let depth = 0;
+  let kept = '';
+  for (const char of selector) {
+    if (char === '(') depth++;
+    else if (char === ')' && depth) depth--;
+    else if (!depth) kept += char;
+  }
+  return kept;
+}
+
+/**
  * Whether any element may match a selector, judged by the tag, classes, IDs, and attributes
  * of the last compound of each selector in the list—erring toward a match
  * @param {string} selector
  * @param {Element[]} elements
  */
 function mayMatch(selector, elements) {
-  return selector.split(',').some((part) => {
-    const compound = (part.trim().replace(/::?[\w-]+(?:\([^)]*\))?/g, '').split(/[\s>+~]+/).pop() ?? '').trim();
+  return withoutArguments(selector).split(',').some((part) => {
+    const compound = (part.trim().replace(/::?[\w-]+/g, '').split(/[\s>+~]+/).pop() ?? '').trim();
     const tag = compound.match(/^[a-z][\w-]*/i)?.[0].toLowerCase();
     const classes = [...compound.matchAll(/\.([\w-]+)/g)].map((match) => match[1] ?? '');
     const ids = [...compound.matchAll(/#([\w-]+)/g)].map((match) => match[1] ?? '');
