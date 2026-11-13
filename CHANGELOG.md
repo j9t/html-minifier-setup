@@ -4,7 +4,7 @@ All notable changes to HTML Minifier Setup (HMS) are documented in this file, wh
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.3.0] - 2026-11-13
+## [0.3.0] - 2026-11-14
 
 ### Fixed
 
@@ -16,7 +16,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ### Changed
 
-* Read style sheets with Lightning CSS, which HTML Minifier uses already, rather than with regular expressions: The static checks now follow nested rules (e.g., `&:hover`), and take style sheets as browsers do, dropping invalid rules and imports that follow other rules
+* Switched to reading style sheets with [Lightning CSS](https://lightningcss.dev/), which HTML Minifier uses already, rather than with regular expressions: The static checks now follow nested rules (e.g., `&:hover`), and take style sheets as browsers do, dropping invalid rules and imports that follow other rules
 
 ## [0.2.0] - 2026-11-13
 
