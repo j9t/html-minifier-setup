@@ -58,7 +58,8 @@ export function createMinifierPool({ size = SIZE_DEFAULT } = {}) {
     });
     // Where a worker fails as a whole (e.g., out of memory), its job fails and others take over
     slot.worker.on('error', (/** @type {Error} */ err) => {
-      slots.splice(slots.indexOf(slot), 1);
+      const index = slots.indexOf(slot);
+      if (index !== -1) slots.splice(index, 1);
       slot.job?.reject(err);
       slot.job = null;
       pump();
@@ -100,8 +101,12 @@ export function createMinifierPool({ size = SIZE_DEFAULT } = {}) {
       });
     },
     async close() {
-      for (const job of queue.splice(0)) job.reject(new Error('Minifier pool closed'));
-      await Promise.all(slots.splice(0).map((slot) => slot.worker.terminate()));
+      const jobs = [...queue.splice(0), ...slots.flatMap((slot) => slot.job ? [slot.job] : [])];
+      for (const job of jobs) job.reject(new Error('Minifier pool closed'));
+      await Promise.all(slots.splice(0).map((slot) => {
+        slot.job = null;
+        return slot.worker.terminate();
+      }));
     }
   };
 }

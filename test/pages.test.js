@@ -171,6 +171,13 @@ describe('`samplePaths`', () => {
     numbers.forEach((number, index) => assert.ok((numbers[index + 1] ?? 100) - number <= 20, String(numbers)));
   });
 
+  test('Samples large sites quickly', () => {
+    const paths = Array.from({ length: 50000 }, (_, index) => [`page${index}.html`, `post${index}/index.html`]).flat();
+    const start = performance.now();
+    assert.strictEqual(samplePaths(paths, 20).length, 20);
+    assert.ok(performance.now() - start < 1000, `${Math.round(performance.now() - start)} ms`);
+  });
+
   test('Picks the same sample each time', () => {
     const paths = Array.from({ length: 50 }, (_, index) => `s${index % 3}/p${index}/index.html`);
     assert.deepStrictEqual(samplePaths(paths, 7), samplePaths([...paths].reverse(), 7));

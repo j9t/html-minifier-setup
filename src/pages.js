@@ -123,18 +123,19 @@ function spread(items) {
 }
 
 /**
- * Takes from each list in turn
+ * Takes from each list in turn, up to `limit` items
  * @param {string[][]} lists
+ * @param {number} limit
  */
-function interleave(lists) {
+function interleave(lists, limit) {
   /** @type {string[]} */
   const items = [];
-  const total = lists.reduce((sum, list) => sum + list.length, 0);
-  for (let round = 0; items.length < total; round++) {
-    for (const list of lists) {
-      const item = list[round];
-      if (item !== undefined) items.push(item);
+  let active = lists.filter((list) => list.length);
+  for (let round = 0; active.length && items.length < limit; round++) {
+    for (const list of active) {
+      if (items.length < limit) items.push(/** @type {string} */ (list[round]));
     }
+    active = active.filter((list) => list.length > round + 1);
   }
   return items;
 }
@@ -166,11 +167,12 @@ export function samplePaths(paths, count) {
     folder.files.push(item);
   }
   /**
+   * The first `count` pages of the folder, in the order they’re picked
    * @param {Folder} folder
    * @returns {string[]}
    */
-  const order = (folder) => interleave([spread(folder.files), ...spread([...folder.folders.values()]).map(order)]);
-  return order(root).slice(0, count);
+  const order = (folder) => interleave([spread(folder.files), ...spread([...folder.folders.values()]).map(order)], count);
+  return order(root);
 }
 
 /**
