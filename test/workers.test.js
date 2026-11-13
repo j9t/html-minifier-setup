@@ -42,11 +42,8 @@ describe('`createMinifierPool`', () => {
 
   test('Rejects what is still minifying when closed', async () => {
     const pool = createMinifierPool({ size: 1 });
-    const outcomes = [
-      assert.rejects(pool.minify(PAGE.repeat(2000), { collapseWhitespace: true, minifyCSS: true }), /closed/),
-      assert.rejects(pool.minify(PAGE, {}), /closed/)
-    ];
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    // The first goes to the worker right away, the second waits for it
+    const outcomes = [assert.rejects(pool.minify(PAGE, {}), /closed/), assert.rejects(pool.minify(PAGE, {}), /closed/)];
     await pool.close();
     await Promise.all(outcomes);
   });
