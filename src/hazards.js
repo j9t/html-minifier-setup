@@ -133,9 +133,10 @@ function outlineOf(selector) {
   return kept;
 }
 
-// Escapes, attribute selectors, pseudo-classes, whitespace, combinators, commas, and the rest
-const RE_SELECTOR_TOKEN = /\\(?:[0-9a-f]{1,6}\s?|[^0-9a-f])|\[[^\]]*\]?|::?[\w-]+|\s+|[>+~,]|[^\s>+~,\\:[]+|:/gi;
-const RE_SELECTOR_NAME = /([.#])((?:\\(?:[0-9a-f]{1,6}\s?|[^0-9a-f])|[\w\u00A0-\uFFFF-])+)/gi;
+// Escapes, attribute selectors, pseudo-classes, CSS whitespace, combinators, commas, and the rest
+const RE_SELECTOR_TOKEN = /\\(?:[0-9a-f]{1,6}[ \t\n\f\r]?|[^0-9a-f])|\[[^\]]*\]?|::?[\w-]+|[ \t\n\f\r]+|[>+~,]|[^ \t\n\f\r>+~,\\:[]+|:/gi;
+const RE_SELECTOR_ATTRIBUTE = /\[[^\]]*\]?/g;
+const RE_SELECTOR_NAME = /([.#])((?:\\(?:[0-9a-f]{1,6}[ \t\n\f\r]?|[^0-9a-f])|[\w\u00A0-\uFFFF-])+)/gi;
 
 /**
  * The last compound of each selector in a list, without pseudo-classes
@@ -152,7 +153,7 @@ function compoundsOf(selector) {
       compounds.push(compound);
       compound = '';
       isDescending = false;
-    } else if (/^\s/.test(token)) {
+    } else if (/^[ \t\n\f\r]/.test(token)) {
       isDescending = true;
     } else if (/^[>+~]$/.test(token)) {
       compound = '';
@@ -168,10 +169,10 @@ function compoundsOf(selector) {
 }
 
 /** @param {string} name */
-const unescapeCss = (name) => name.replace(/\\(?:([0-9a-f]{1,6})\s?|([\s\S]))/gi, (_, hex, char) => {
+const unescapeCss = (name) => name.replace(/\\(?:([0-9a-f]{1,6})[ \t\n\f\r]?|([\s\S]))/gi, (_, hex, char) => {
   if (!hex) return char;
   const code = parseInt(hex, 16);
-  return code && code <= 0x10FFFF ? String.fromCodePoint(code) : '�';
+  return code && code <= 0x10FFFF ? String.fromCodePoint(code) : '\uFFFD';
 });
 
 /**
@@ -183,7 +184,7 @@ const unescapeCss = (name) => name.replace(/\\(?:([0-9a-f]{1,6})\s?|([\s\S]))/gi
 function mayMatch(selector, elements) {
   return compoundsOf(selector).some((compound) => {
     const tag = compound.match(/^[a-z][\w-]*/i)?.[0].toLowerCase();
-    const names = [...compound.matchAll(RE_SELECTOR_NAME)].map((match) => ({ isClass: match[1] === '.', name: unescapeCss(match[2] ?? '') }));
+    const names = [...compound.replace(RE_SELECTOR_ATTRIBUTE, '').matchAll(RE_SELECTOR_NAME)].map((match) => ({ isClass: match[1] === '.', name: unescapeCss(match[2] ?? '') }));
     const classes = names.filter(({ isClass }) => isClass).map(({ name }) => name);
     const ids = names.filter(({ isClass }) => !isClass).map(({ name }) => name);
     const attributes = [...compound.matchAll(/\[\s*([\w-]+)/g)].map((match) => (match[1] ?? '').toLowerCase());

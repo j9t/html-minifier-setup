@@ -98,8 +98,13 @@ describe('`findHazards`', () => {
     }
   });
 
+  test('Ends escapes only at CSS whitespace', async () => {
+    const context = await analyze('<style>#\\61 z { white-space: pre-line }</style>');
+    assert.strictEqual(levels(findHazards('collapseWhitespace', context, '<p id="a z">a\nb</p>', '<p id="a z">a b</p>'), 'check').length, 1);
+  });
+
   test('Matches whitespace rules by attribute selectors whatever their values hold', async () => {
-    for (const [selector, element] of [['a[href$=".txt"]', '<a href="x.txt">'], ['[title="a b"]', '<p title="a b">'], ['p[class~=x]', '<p class="x">']]) {
+    for (const [selector, element] of [['a[href$=".txt"]', '<a href="x.txt">'], ['[title="a b"]', '<p title="a b">'], ['p[class~=x]', '<p class="x">'], ['a[href=\\#main]', '<a href="#main">']]) {
       const context = await analyze(`<style>${selector} { white-space: pre-line }</style>`);
       assert.strictEqual(levels(findHazards('collapseWhitespace', context, `${element}a\nb`, `${element}a b`), 'check').length, 1, selector);
     }
