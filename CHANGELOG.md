@@ -4,11 +4,12 @@ All notable changes to HTML Minifier Setup (HMS) are documented in this file, wh
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.2.1] - 2026-11-13
 
 ### Fixed
 
 * Judged which elements whitespace rules match in linear time, so that crafted selectors (e.g., many unclosed `:x(`) can’t stall the static checks, and by the selector outside nested parentheses
+* Matched whitespace rules by escaped class names and IDs (e.g., Tailwind’s `.md\:whitespace-pre-line`) and by attribute selectors whatever their values hold (e.g., `a[href$=".txt"]`), which had kept options that collapse whitespace from being flagged
 
 ## [0.2.0] - 2026-11-13
 

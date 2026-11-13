@@ -103,34 +103,76 @@ function removed(before, after) {
 }
 
 /**
- * A selector without what parentheses hold, however nested, in linear time;
- * parentheses in quotes or escaped don’t count
+ * A selector without what parentheses and quotes hold, however nested, in linear time;
+ * escaped characters don’t count
  * @param {string} selector
  */
-function withoutArguments(selector) {
+function outlineOf(selector) {
   let depth = 0;
   let kept = '';
   /** @type {string | null} */
   let quote = null;
   for (let index = 0; index < selector.length; index++) {
-    let char = selector[index] ?? '';
+    const char = selector[index] ?? '';
     if (char === '\\') {
-      char += selector[++index] ?? '';
+      const escape = char + (selector[++index] ?? '');
+      if (!depth && !quote) kept += escape;
     } else if (quote) {
-      if (char === quote) quote = null;
-    } else if (char === '"' || char === '\'') {
-      quote = char;
+      if (char !== quote) continue;
+      quote = null;
+      if (!depth) kept += char;
     } else if (char === '(') {
       depth++;
-      continue;
     } else if (char === ')' && depth) {
       depth--;
-      continue;
+    } else {
+      if (char === '"' || char === '\'') quote = char;
+      if (!depth) kept += char;
     }
-    if (!depth) kept += char;
   }
   return kept;
 }
+
+// Escapes, attribute selectors, pseudo-classes, whitespace, combinators, commas, and the rest
+const RE_SELECTOR_TOKEN = /\\(?:[0-9a-f]{1,6}\s?|[^0-9a-f])|\[[^\]]*\]?|::?[\w-]+|\s+|[>+~,]|[^\s>+~,\\:[]+|:/gi;
+const RE_SELECTOR_NAME = /([.#])((?:\\(?:[0-9a-f]{1,6}\s?|[^0-9a-f])|[\w\u00A0-\uFFFF-])+)/gi;
+
+/**
+ * The last compound of each selector in a list, without pseudo-classes
+ * @param {string} selector
+ */
+function compoundsOf(selector) {
+  /** @type {string[]} */
+  const compounds = [];
+  let compound = '';
+  // Whitespace combines only where another compound follows
+  let isDescending = false;
+  for (const [token] of outlineOf(selector).matchAll(RE_SELECTOR_TOKEN)) {
+    if (token === ',') {
+      compounds.push(compound);
+      compound = '';
+      isDescending = false;
+    } else if (/^\s/.test(token)) {
+      isDescending = true;
+    } else if (/^[>+~]$/.test(token)) {
+      compound = '';
+      isDescending = false;
+    } else {
+      if (isDescending) compound = '';
+      isDescending = false;
+      if (!token.startsWith(':')) compound += token;
+    }
+  }
+  compounds.push(compound);
+  return compounds;
+}
+
+/** @param {string} name */
+const unescapeCss = (name) => name.replace(/\\(?:([0-9a-f]{1,6})\s?|([\s\S]))/gi, (_, hex, char) => {
+  if (!hex) return char;
+  const code = parseInt(hex, 16);
+  return code && code <= 0x10FFFF ? String.fromCodePoint(code) : '�';
+});
 
 /**
  * Whether any element may match a selector, judged by the tag, classes, IDs, and attributes
@@ -139,11 +181,11 @@ function withoutArguments(selector) {
  * @param {Element[]} elements
  */
 function mayMatch(selector, elements) {
-  return withoutArguments(selector).split(',').some((part) => {
-    const compound = (part.trim().replace(/::?[\w-]+/g, '').split(/[\s>+~]+/).pop() ?? '').trim();
+  return compoundsOf(selector).some((compound) => {
     const tag = compound.match(/^[a-z][\w-]*/i)?.[0].toLowerCase();
-    const classes = [...compound.matchAll(/\.([\w-]+)/g)].map((match) => match[1] ?? '');
-    const ids = [...compound.matchAll(/#([\w-]+)/g)].map((match) => match[1] ?? '');
+    const names = [...compound.matchAll(RE_SELECTOR_NAME)].map((match) => ({ isClass: match[1] === '.', name: unescapeCss(match[2] ?? '') }));
+    const classes = names.filter(({ isClass }) => isClass).map(({ name }) => name);
+    const ids = names.filter(({ isClass }) => !isClass).map(({ name }) => name);
     const attributes = [...compound.matchAll(/\[\s*([\w-]+)/g)].map((match) => (match[1] ?? '').toLowerCase());
     return elements.some((element) => {
       const own = (attr(element, 'class') ?? '').split(/\s+/);

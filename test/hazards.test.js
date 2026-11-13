@@ -91,6 +91,24 @@ describe('`findHazards`', () => {
     assert.strictEqual(levels(findHazards('collapseWhitespace', context, '<div>a\nb</div>', '<div>a b</div>'), 'check').length, 1);
   });
 
+  test('Matches whitespace rules by escaped class names', async () => {
+    for (const [selector, classes] of [['.md\\:whitespace-pre-line', 'md:whitespace-pre-line'], ['.\\32xl\\:whitespace-pre', '2xl:whitespace-pre'], ['.w-1\\/2', 'w-1/2']]) {
+      const context = await analyze(`<style>${selector} { white-space: pre-line }</style>`);
+      assert.strictEqual(levels(findHazards('collapseWhitespace', context, `<p class="${classes}">a\nb</p>`, `<p class="${classes}">a b</p>`), 'check').length, 1, selector);
+    }
+  });
+
+  test('Matches whitespace rules by attribute selectors whatever their values hold', async () => {
+    for (const [selector, element] of [['a[href$=".txt"]', '<a href="x.txt">'], ['[title="a b"]', '<p title="a b">'], ['p[class~=x]', '<p class="x">']]) {
+      const context = await analyze(`<style>${selector} { white-space: pre-line }</style>`);
+      assert.strictEqual(levels(findHazards('collapseWhitespace', context, `${element}a\nb`, `${element}a b`), 'check').length, 1, selector);
+    }
+    for (const selector of ['span[title="a, .b"]', 'span[class~=b]']) {
+      const context = await analyze(`<style>${selector} { white-space: pre-line }</style>`);
+      assert.deepStrictEqual(findHazards('collapseWhitespace', context, '<p class="b">a\nb</p>', '<p class="b">a b</p>'), [], selector);
+    }
+  });
+
   test('Finds no whitespace hazard where no element matches the rule', async () => {
     const context = await analyze('<style>.poem { white-space: pre-line }</style>');
     assert.deepStrictEqual(findHazards('collapseWhitespace', context, '<p class="prose">a\nb</p>', '<p class="prose">a b</p>'), []);
