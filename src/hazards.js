@@ -37,6 +37,11 @@ const MAX_PER_KIND = 3;
 const MODES = { 'quirks': 'quirks mode', 'limited-quirks': 'almost standards mode', 'no-quirks': 'standards mode' };
 const RE_STRING_LITERAL = /(["'`])((?:\\.|(?!\1)[^\\\n])*)\1/g;
 const RE_WORD = /[\w-]+/g;
+// What separates classes in HTML, unlike JavaScript’s `\s`, which includes no-break spaces
+const RE_WHITESPACE_ASCII = /[ \t\n\f\r]+/;
+const RE_ESCAPE_JS = /\\(?:u\{([\da-f]+)\}|u([\da-f]{4})|x([\da-f]{2})|([\s\S]))/gi;
+/** @type {Record<string, string>} */
+const ESCAPES_JS = { 'b': '\b', 'f': '\f', 'n': '\n', 'r': '\r', 't': '\t', 'v': '\v', '0': '\0' };
 const RE_ATTRIBUTE_SELECTOR = /\[\s*([\w-]+)\s*(?=[~|^$*]?=|\])/g;
 const RE_ATTRIBUTE_CALL = /\b(?:get|has|remove|set|toggle)Attribute(?:NS)?\(\s*(?:[^,()]*,\s*)?["'`]([\w-]+)/g;
 const RE_READS_COMMENTS = /SHOW_COMMENT|COMMENT_NODE|nodeType\s*[!=]==?\s*8\b|\.childNodes\b[^;]*\.data\b/;
@@ -110,6 +115,16 @@ function removed(before, after) {
 }
 
 /**
+ * Text of a JavaScript string literal, with escapes decoded
+ * @param {string} text
+ */
+const unescapeJs = (text) => text.replace(RE_ESCAPE_JS, (_, braced, unicode, hex, char) => {
+  if (char !== undefined) return ESCAPES_JS[char] ?? char;
+  const code = parseInt(braced ?? unicode ?? hex, 16);
+  return code <= 0x10FFFF ? String.fromCodePoint(code) : '\uFFFD';
+});
+
+/**
  * Components of selectors, including those in arguments like `:is()`, however deeply nested
  * @param {unknown} value
  */
@@ -181,6 +196,13 @@ function readStyles(css) {
         const rule = { selectors: child.value.selectors, parent, declarations: [...declarations, ...importantDeclarations], selector: selectorAt(child.value.loc) };
         rules.push(rule);
         collect(child.value.rules ?? [], rule);
+      } else if (child.type === 'scope') {
+        // `&` in a scope stands for its root, which, without a selector, may be any element
+        const { scopeStart, scopeEnd, rules: scoped, loc } = child.value;
+        const scope = { selectors: scopeStart ?? [[]], parent, declarations: [], selector: selectorAt(loc) };
+        rules.push(scope);
+        if (scopeEnd) rules.push({ ...scope, selectors: scopeEnd, parent: scope });
+        collect(scoped, scope);
       } else if (child.type === 'nested-declarations' && parent) {
         const { declarations = [], importantDeclarations = [] } = child.value.declarations ?? {};
         rules.push({ ...parent, selectors: [[{ type: 'nesting' }]], parent, declarations: [...declarations, ...importantDeclarations] });
@@ -222,7 +244,7 @@ function rulesMatching(rules, elements) {
     const fits = (component, element) => {
       switch (component.type) {
         case 'type': return element.tagName.toLowerCase() === component.name.toLowerCase();
-        case 'class': return (attr(element, 'class') ?? '').split(/\s+/).includes(component.name);
+        case 'class': return (attr(element, 'class') ?? '').split(RE_WHITESPACE_ASCII).includes(component.name);
         case 'id': return attr(element, 'id') === component.name;
         case 'attribute': return element.attrs.some((item) => item.name === component.name.toLowerCase());
         case 'nesting': return !rule.parent || matching(rule.parent).has(element);
@@ -314,7 +336,11 @@ export async function analyzePage(page) {
   for (const literal of scriptText.matchAll(RE_STRING_LITERAL)) {
     const content = literal[2] ?? '';
     // Words, and what whitespace separates, for names like `md:open`
-    for (const word of [...content.match(RE_WORD) ?? [], ...content.split(/\s+/)]) if (word) scriptStrings.add(word);
+    for (const word of [...content.match(RE_WORD) ?? [], ...content.split(RE_WHITESPACE_ASCII)]) if (word) scriptStrings.add(word);
+    // Names in selectors, as in `querySelector('.md\\:open')`, decoded as in style sheets
+    if (content.includes('\\')) {
+      for (const name of namesOf(readStyles(`${unescapeJs(content)}{}`).rules)) if (!name.startsWith('[')) scriptStrings.add(name.slice(1));
+    }
     for (const match of content.matchAll(RE_ATTRIBUTE_SELECTOR)) attributeRefs.add((match[1] ?? '').toLowerCase());
   }
   for (const match of scriptText.matchAll(RE_ATTRIBUTE_CALL)) attributeRefs.add((match[1] ?? '').toLowerCase());
@@ -383,7 +409,7 @@ export function findHazards(name, context, before, after) {
     let count = 0;
     for (const signature of gone) {
       const [tag, id, classes] = /** @type {[string, string, string]} */ (JSON.parse(signature));
-      const named = [id, ...classes.split(/\s+/)].filter((token) => token && context.scriptStrings.has(token));
+      const named = [id, ...classes.split(RE_WHITESPACE_ASCII)].filter((token) => token && context.scriptStrings.has(token));
       if (named.length && count++ < MAX_PER_KIND) {
         const shown = `<${tag}${id ? ` id="${id}"` : ''}${classes ? ` class="${clip(classes, 30)}"` : ''}>`;
         hazards.push({ level: 'risk', message: `Removes empty ${shown}, which scripts may fill (${named.map((token) => `\`${token}\``).join(', ')})` });

@@ -84,6 +84,11 @@ describe('`analyzePage`', () => {
     assert.deepStrictEqual([...context.attributeRefs].sort(), ['data-x', 'data-y', 'data-z']);
   });
 
+  test('Collects attribute references from scope boundaries', async () => {
+    const context = await analyze('<style>@scope ([data-theme]) to ([data-end]) { p {} }</style>');
+    assert.deepStrictEqual([...context.attributeRefs].sort(), ['data-end', 'data-theme']);
+  });
+
   test('Leaves inline styles out of attribute references', async () => {
     const context = await analyze('<p style="color: red">');
     assert.deepStrictEqual([...context.attributeRefs], []);
@@ -145,9 +150,29 @@ describe('`findHazards`', () => {
     assert.deepStrictEqual(findHazards('collapseWhitespace', context, '<p class="prose">a\nb</p>', '<p class="prose">a b</p>'), []);
   });
 
+  test('Matches whitespace rules nested in scopes by the scope root', async () => {
+    const context = await analyze('<style>.x { @scope (.card) { & { white-space: pre } } } @scope (.list) { & { white-space: pre-line } }</style>');
+    assert.strictEqual(levels(findHazards('collapseWhitespace', context, '<p class="card">a\nb</p>', '<p class="card">a b</p>'), 'check').length, 1);
+    assert.strictEqual(levels(findHazards('collapseWhitespace', context, '<ul class="list">a\nb</ul>', '<ul class="list">a b</ul>'), 'check').length, 1);
+    assert.deepStrictEqual(findHazards('collapseWhitespace', context, '<p class="x">a\nb</p>', '<p class="x">a b</p>'), []);
+  });
+
+  // Lightning CSS drops these declarations (https://github.com/parcel-bundler/lightningcss/issues/1165)
+  test.todo('Matches whitespace rules declared directly in top-level scopes by the scope root', async () => {
+    const context = await analyze('<style>@scope (.list) { white-space: pre-line }</style>');
+    assert.strictEqual(levels(findHazards('collapseWhitespace', context, '<ul class="list">a\nb</ul>', '<ul class="list">a b</ul>'), 'check').length, 1);
+    assert.deepStrictEqual(findHazards('collapseWhitespace', context, '<p class="x">a\nb</p>', '<p class="x">a b</p>'), []);
+  });
+
   test('Matches whitespace rules for each element on its own', async () => {
     const context = await analyze('<style>.poem { &.verse { white-space: pre-line } }</style>');
     assert.deepStrictEqual(findHazards('collapseWhitespace', context, '<p class="poem">a\nb</p><p class="verse">c</p>', '<p class="poem">a b</p><p class="verse">c</p>'), []);
+  });
+
+  test('Matches whitespace rules by class names with no-break spaces, which don’t separate classes', async () => {
+    const context = await analyze('<style>.a\u00A0b { white-space: pre-line }</style>');
+    assert.strictEqual(levels(findHazards('collapseWhitespace', context, '<p class="a\u00A0b">a\nb</p>', '<p class="a\u00A0b">a b</p>'), 'check').length, 1);
+    assert.deepStrictEqual(findHazards('collapseWhitespace', context, '<p class="a b">a\nb</p>', '<p class="a b">a b</p>'), []);
   });
 
   test('Finds no whitespace hazard for invalid rules, which browsers drop', async () => {
@@ -202,6 +227,12 @@ describe('`findHazards`', () => {
     const context = await analyze('<script>el.classList.add("md:open", "is-active")</script>');
     const hazards = findHazards('removeUnusedCSS', context, '<style>.md\\:open{color:red}.menu{&.is-active{color:red}}</style>', '<style></style>');
     assert.match(levels(hazards, 'risk')[0]?.message ?? '', /`\.md:open`, `\.is-active`/);
+  });
+
+  test('Flags style rules removed for escaped classes that script selectors name', async () => {
+    const context = await analyze('<script>document.querySelector(".md\\\\:open")</script>');
+    const hazards = findHazards('removeUnusedCSS', context, '<style>.md\\:open{color:red}</style>', '<style></style>');
+    assert.match(levels(hazards, 'risk')[0]?.message ?? '', /`\.md:open`/);
   });
 
   test('Notes removed style rules where scripts can’t be read', async () => {
