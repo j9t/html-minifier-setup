@@ -200,7 +200,7 @@ export async function offerSetup({ config, dirProject, configPreset = null, cwd,
     const dirInstalled = path.dirname(path.dirname(found.dir));
     const where = dirInstalled === cwd ? '' : ` in ${describeDir(dirInstalled, cwd)}`;
     if (!versionLatest || !isNewer(versionLatest, found.version)) {
-      log(`HTML Minifier ${found.version} is installed${where}${versionLatest ? ' (latest)' : ''}`);
+      log(`HTML Minifier ${found.version}${versionLatest ? ' (latest)' : ''} is installed${where}`);
     } else if (isYes(await ask(`Update HTML Minifier ${found.version}${where} to ${versionLatest} (latest)? (y/N) `))) {
       if (!await install(dirInstalled, detectPackageManager(dirInstalled))) log('Update failed');
     }

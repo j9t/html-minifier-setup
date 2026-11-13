@@ -125,6 +125,17 @@ describe('`customize`', () => {
     assert.ok(comprehensive?.rejected.includes('collapseWhitespace'));
   });
 
+  test('Names the compression method capitalized where an option saves nothing', async () => {
+    const reasons = (await customize(pageHome, { presets: false })).evaluations.flatMap((item) => item.reasons.map((reason) => reason.message));
+    assert.ok(reasons.some((message) => /^Saves nothing with Gzip$/.test(message)), reasons.join('\n'));
+  });
+
+  test('Notes how many pages the sample was taken from, where it left any out', async () => {
+    assert.strictEqual((await customize(pageHome, { presets: false, pagesFound: 1234 })).pagesFound, 1234);
+    assert.strictEqual((await customize(pageHome, { presets: false, pagesFound: 1 })).pagesFound, null);
+    assert.strictEqual((await customize(pageHome, { presets: false })).pagesFound, null);
+  });
+
   test('Compares with presets unrendered without a renderer, or not at all if asked', async () => {
     const result = await customize(pageHome);
     assert.strictEqual(result.presets[0]?.failing, null);

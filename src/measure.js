@@ -15,6 +15,16 @@ const gzipCompress = promisify(zlib.gzip);
 /** @type {Metric[]} */
 export const METRICS = ['raw', 'gzip', 'brotli'];
 
+// For prose
+/** @type {Record<Metric, string>} */
+export const NAMES_METRIC = { raw: 'uncompressed', gzip: 'Gzip', brotli: 'Brotli' };
+
+/**
+ * How much an option saves by the metric, in prose (e.g., “saves nothing with Gzip”)
+ * @param {Metric} metric
+ */
+export const byMetric = (metric) => metric === 'raw' ? 'uncompressed' : `with ${NAMES_METRIC[metric]}`;
+
 /** @type {Sizes} */
 const SIZES_ZERO = Object.freeze({ raw: 0, gzip: 0, brotli: 0 });
 

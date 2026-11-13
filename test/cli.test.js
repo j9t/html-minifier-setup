@@ -53,6 +53,12 @@ describe('CLI', () => {
     assert.match(stdout, /Recommended configuration:/);
   });
 
+  test('Names how many pages the sample was taken from', async () => {
+    const { code, stdout, stderr } = await run([dirSite, ...FLAGS, '--sample', '2']);
+    assert.strictEqual(code, 0, stderr);
+    assert.match(stdout, /Evaluated 2 of 3 pages \(use `--sample` to evaluate more\), judging gains by Gzip size/);
+  });
+
   test('Writes the configuration to a file', async () => {
     const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'hms-cli-'));
     try {

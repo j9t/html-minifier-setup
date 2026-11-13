@@ -16,7 +16,7 @@ npx html-minifier-setup [inputs...] [options]
 
 (Like HTML Minifier, HTML Minifier Setup requires Node.js ≥22.13.)
 
-Inputs are HTML files, directories, or URLs (default: the current directory). From directories, up to 20 pages (`--sample`) are picked, spread across subdirectories to cover a site’s templates.
+Inputs are HTML files, directories, or URLs (default: the current directory). From directories, up to 20 pages (`--sample`) are picked, spread across a site’s sections first and then across the folders within them, to cover its templates. The same pages give the same sample, and the report says how many pages it was taken from.
 
 The render check, which catches most of what static checks can’t, uses Playwright’s Chromium, or else Chrome or Edge, if installed. Where none is found, HTML Minifier Setup offers to download Chromium.
 
@@ -98,7 +98,7 @@ The checks can show that options change pages, not that they never will:
 * The render check sees pages as they load, not after interaction (e.g., a menu a script opens, using classes `removeUnusedCSS` removed).
 * Scripts from other origins can’t be read, and classes or attributes a script builds at runtime (e.g., `'is-' + state`) can’t be found.
 * Rendering must match pixel for pixel, so lossy changes (e.g., SVG coordinates rounded by `minifySVG`) count as differences.
-* A page sample may miss templates the rest of the site uses.
+* A page sample may miss templates the rest of the site uses—for sites with many different templates, raise `--sample`.
 * Options that have no effect can’t be judged: On pages that are minified already, most options are left out, as there’s nothing left for them to do. Run HTML Minifier Setup on pages before minification instead.
 
 Test the configuration on your site before deploying it.

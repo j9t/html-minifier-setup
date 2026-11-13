@@ -1,7 +1,7 @@
 import { presets as PRESETS } from 'html-minifier';
 import { VISIBLE_BY_DESIGN } from './catalog.js';
 import { paint } from './color.js';
-import { METRICS } from './measure.js';
+import { METRICS, NAMES_METRIC } from './measure.js';
 import { MESSAGE_RENDERS_SAME } from './select.js';
 
 const URL_SCHEMA = 'https://raw.githubusercontent.com/j9t/html-minifier/main/html-minifier.schema.json';
@@ -9,10 +9,10 @@ const URL_SCHEMA = 'https://raw.githubusercontent.com/j9t/html-minifier/main/htm
 const MAX_LISTED = 3;
 
 // Render differences, worded so as not to read as errors
-const LABEL_RENDER = 'looks different';
+const LABEL_RENDER = 'Looks different';
 
 /** @param {string} level */
-const labelOf = (level) => level === 'render' ? LABEL_RENDER : level;
+const labelOf = (level) => level === 'render' ? LABEL_RENDER : `${level.charAt(0).toUpperCase()}${level.slice(1)}`;
 
 // Share of the size below which whitespace collapsing suggests minified pages
 const SHARE_MINIFIED = 0.01;
@@ -118,10 +118,10 @@ function condenseReasons(reasons) {
       const pages = [...new Set(run.flatMap((reason) => reason.page ?? []))];
       const count = `${pages.length} page${pages.length === 1 ? '' : 's'}`;
       if (pages.join('\u0000') === pagesRenderedBefore) {
-        lines.push(`${LABEL_RENDER} · same ${count}`);
+        lines.push(`${LABEL_RENDER} on the same ${count}`);
       } else {
         const example = /** @type {import('./select.js').Reason} */ (run.find((reason) => reason.message.includes('“')) ?? run[0]);
-        lines.push(`${LABEL_RENDER} · ${count} (${listShort(pages)}), e.g., ${example.page ? `${example.page}: ` : ''}${example.message}`);
+        lines.push(`${LABEL_RENDER} on ${count} (${listShort(pages)}), e.g., ${example.page ? `${example.page}: ` : ''}${example.message}`);
       }
       pagesRenderedBefore = pages.join('\u0000');
       continue;
@@ -135,7 +135,7 @@ function condenseReasons(reasons) {
       byMessage.set(key, entry);
     }
     for (const { level: levelEntry, message, pages } of byMessage.values()) {
-      lines.push(`${levelEntry}${pages.length ? ` · ${listShort(pages)}` : ''}: ${message}`);
+      lines.push(`${labelOf(levelEntry)}${pages.length ? ` (${listShort(pages)})` : ''}: ${message}`);
     }
   }
   return lines;
@@ -174,7 +174,7 @@ export function formatReport(result, { renderReason = '', color = false, verbose
       ? `${renderedAs}: The recommended configuration looks the same as the original pages`
       : paint('warning', `${renderedAs}: The recommended configuration may not look the same as the original pages (see notes)`, color);
   const lines = [
-    `• Evaluated ${result.pages.length} page${result.pages.length === 1 ? '' : 's'}${dirShared ? ` in ${dirShared}` : ''}, judging gains by ${metric === 'raw' ? 'uncompressed' : metric} size`,
+    `• Evaluated ${result.pagesFound ? `${result.pages.length} of ${result.pagesFound.toLocaleString('en-US')} pages` : `${result.pages.length} page${result.pages.length === 1 ? '' : 's'}`}${dirShared ? ` in ${dirShared}` : ''}${result.pagesFound ? ' (use `--sample` to evaluate more)' : ''}, judging gains by ${NAMES_METRIC[metric]} size`,
     result.rendered
       ? `• ${renderSummary}`
       : `• Not render-checked${renderReason ? `: ${renderReason}` : ''}—options that need a render check aren’t recommended`,
@@ -193,12 +193,12 @@ export function formatReport(result, { renderReason = '', color = false, verbose
       ])
     ]),
     '',
-    ...METRICS.map((m) => `${m === 'raw' ? 'Uncompressed' : m === 'gzip' ? 'Gzip' : 'Brotli'}: ${formatChange(result.baseline[m], result.final[m], color)}`)
+    ...METRICS.map((m) => `${m === 'raw' ? 'Uncompressed' : NAMES_METRIC[m]}: ${formatChange(result.baseline[m], result.final[m], color)}`)
   ];
 
   if (result.presets.length) {
     const finalMetric = result.final[metric];
-    lines.push('', `Compared with HTML Minifier’s presets (${metric === 'raw' ? 'uncompressed' : metric}):`, table(result.presets.map((preset) => {
+    lines.push('', `Compared with HTML Minifier’s presets (${NAMES_METRIC[metric]}):`, table(result.presets.map((preset) => {
       const share = finalMetric ? (preset.size / finalMetric - 1) * 100 : 0;
       const size = preset.errors ? `fails on ${preset.errors} of ${result.pages.length}` : formatBytes(preset.size);
       const relative = preset.errors ? '' : Math.abs(share) < 0.05 ? 'same size' : `${Math.abs(share).toFixed(1)}% ${share > 0 ? 'larger' : 'smaller'}`;
@@ -233,12 +233,12 @@ export function formatReport(result, { renderReason = '', color = false, verbose
     for (const evaluation of explained) {
       lines.push(`  ${evaluation.name} (${formatStatus(evaluation.status)})`);
       const reasonLines = verbose
-        ? evaluation.reasons.map((reason) => `${labelOf(reason.level)}${reason.page ? ` · ${reason.page}` : ''}: ${reason.message}`)
+        ? evaluation.reasons.map((reason) => `${labelOf(reason.level)}${reason.page ? ` (${reason.page})` : ''}: ${reason.message}`)
         : condenseReasons(evaluation.reasons);
       condensed ||= reasonLines.length < evaluation.reasons.length;
       if (evaluation.reasons.some((reason) => reason.level === 'render')) {
         const design = VISIBLE_BY_DESIGN[evaluation.name];
-        lines.push(`    why: ${design ? `${design}—that’s how the option works, not an error` : 'Not meant to change how pages look—possibly an HTML Minifier bug worth reporting'}`);
+        lines.push(`    Why: ${design ? `${design}—that’s how the option works, not an error` : 'Not meant to change how pages look—possibly an HTML Minifier bug worth reporting'}`);
       }
       lines.push(...reasonLines.map((line) => `    ${line}`));
     }

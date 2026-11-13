@@ -5,7 +5,7 @@
 import { presets as PRESETS } from 'html-minifier';
 import { CANDIDATES, checkCandidates, FALLBACKS, readSchema, unclassified } from './catalog.js';
 import { analyzePage, findHazards } from './hazards.js';
-import { sizeOf, sumSizes } from './measure.js';
+import { byMetric, sizeOf, sumSizes } from './measure.js';
 import { minifyInWorkers } from './workers.js';
 
 /**
@@ -34,6 +34,7 @@ import { minifyInWorkers } from './workers.js';
  * @prop {import('./measure.js').Sizes} final
  * @prop {Evaluation[]} evaluations
  * @prop {string[]} pages
+ * @prop {number | null} pagesFound Pages the sample was taken from, where it left any out
  * @prop {boolean} rendered
  * @prop {string | null} equivalence Source of the equivalence check, if used (in development)
  * @prop {string[]} notes
@@ -64,6 +65,7 @@ import { minifyInWorkers } from './workers.js';
  * @prop {import('./render.js').Renderer | null} [renderer]
  * @prop {import('./equivalence.js').Equivalence | null} [equivalence] HTML Minifier’s check, in development
  * @prop {(html: string, options: Record<string, unknown>) => Promise<string>} [minify]
+ * @prop {number} [pagesFound] Pages the given ones were sampled from
  * @prop {boolean} [presets] Whether to compare the result with HTML Minifier’s presets
  * @prop {{version: string, options: string[]} | null} [schema] HTML Minifier’s options, by default the installed version’s
  * @prop {(event: import('./progress.js').ProgressEvent) => void} [onProgress]
@@ -99,6 +101,7 @@ export async function customize(pagesGiven, settings = {}) {
     renderer = null,
     equivalence = null,
     minify = minifyInWorkers,
+    pagesFound,
     presets = true,
     schema = readSchema(),
     onProgress = () => {}
@@ -262,7 +265,7 @@ export async function customize(pagesGiven, settings = {}) {
     if (reasons.some((reason) => reason.level === 'error')) return { status: 'rejected', savings, reasons };
     if (keep.includes(name)) return { status: 'kept', savings, reasons };
     if (!changed) return { status: 'no-effect', savings, reasons: [{ level: 'info', message: 'No effect on these pages' }] };
-    if (savings <= 0) return { status: 'no-gain', savings, reasons: [{ level: 'info', message: `Saves nothing ${metric === 'raw' ? 'uncompressed' : `with ${metric}`}` }, ...reasons] };
+    if (savings <= 0) return { status: 'no-gain', savings, reasons: [{ level: 'info', message: `Saves nothing ${byMetric(metric)}` }, ...reasons] };
     return { status: isBlocking(reasons) ? 'rejected' : 'accepted', savings, reasons };
   }
 
@@ -443,7 +446,7 @@ export async function customize(pagesGiven, settings = {}) {
         .sort((a, b) => (a.contribution ?? 0) - (b.contribution ?? 0));
       if (weakest) {
         weakest.status = 'no-gain';
-        weakest.reasons.push({ level: 'info', message: `Saves nothing alongside the other options (${weakest.contribution} B by ${metric})` });
+        weakest.reasons.push({ level: 'info', message: `Saves nothing alongside the other options (${weakest.contribution} B ${byMetric(metric)})` });
         delete weakest.contribution;
         dropDependents(weakest);
         dropped = true;
@@ -508,6 +511,7 @@ export async function customize(pagesGiven, settings = {}) {
     final,
     evaluations: [...evaluations.values()],
     pages: pages.map((page) => page.id),
+    pagesFound: pagesFound !== undefined && pagesFound > pagesGiven.length ? pagesFound : null,
     rendered: Boolean(renderer),
     equivalence: equivalence?.source ?? null,
     notes: [...notes],

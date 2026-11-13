@@ -244,7 +244,7 @@ describe('`offerSetup`', () => {
     await inDir({ 'node_modules/html-minifier/package.json': PACKAGE_HM }, async (dir) => {
       const logged = /** @type {string[]} */ ([]);
       await offerSetup({ config: CONFIG, cwd: dir, ask: scripted([]).ask, install: fakeInstall().install, latest: Promise.resolve('5.1.0'), log: (message) => logged.push(message) });
-      assert.match(logged.join('\n'), /HTML Minifier 5\.1\.0 is installed \(latest\)/);
+      assert.match(logged.join('\n'), /HTML Minifier 5\.1\.0 \(latest\) is installed/);
     });
   });
 

@@ -127,6 +127,7 @@ const program = new Command()
       const result = await customize(pages, {
         base,
         values,
+        pagesFound: pages.found,
         metric: settings.metric,
         keep: settings.keep,
         skip: settings.skip,

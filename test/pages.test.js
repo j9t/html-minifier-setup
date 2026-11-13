@@ -15,6 +15,13 @@ describe('`loadPages`', () => {
     assert.deepStrictEqual(pages.map((page) => page.id).sort(), ['blog/app.html', 'index.html', 'poem.html']);
   });
 
+  test('Tells how many pages it found, beyond those sampled', async () => {
+    const pages = await loadPages([dirSite], { sample: 2 });
+    assert.strictEqual(pages.length, 2);
+    assert.strictEqual(pages.found, 3);
+    assert.strictEqual((await loadPages([dirSite])).found, 3);
+  });
+
   test('Loads single files with their directory as root', async () => {
     const [page] = await loadPages([path.join(dirSite, 'poem.html')]);
     assert.strictEqual(page?.id, 'poem.html');
@@ -144,6 +151,29 @@ describe('`samplePaths`', () => {
     const paths = ['a/1.html', 'a/2.html', 'a/3.html', 'a/4.html', 'b/1.html', 'c/1.html'];
     const sample = samplePaths(paths, 3);
     assert.deepStrictEqual(sample.map((p) => p[0]).sort(), ['a', 'b', 'c']);
+  });
+
+  test('Spreads the sample across sections before the folders within them', () => {
+    const posts = Array.from({ length: 100 }, (_, index) => `blog/${index + 10}/index.html`);
+    const paths = ['index.html', 'about/index.html', 'docs/a/index.html', 'docs/b/index.html', ...posts];
+    const sample = samplePaths(paths, 6);
+    assert.deepStrictEqual(sample.filter((p) => !p.startsWith('blog/')).sort(), ['about/index.html', 'docs/a/index.html', 'docs/b/index.html', 'index.html']);
+    // Rather than the first posts
+    const picked = sample.filter((p) => p.startsWith('blog/'));
+    assert.strictEqual(picked.length, 2);
+    assert.notDeepStrictEqual(picked.sort(), ['blog/10/index.html', 'blog/11/index.html']);
+  });
+
+  test('Spreads picks across the folders of a section', () => {
+    const posts = Array.from({ length: 100 }, (_, index) => `${String(index).padStart(3, '0')}/index.html`);
+    const numbers = samplePaths(posts, 10).map((p) => Number(p.slice(0, 3))).sort((a, b) => a - b);
+    // At most a fifth of the range apart from the next pick
+    numbers.forEach((number, index) => assert.ok((numbers[index + 1] ?? 100) - number <= 20, String(numbers)));
+  });
+
+  test('Picks the same sample each time', () => {
+    const paths = Array.from({ length: 50 }, (_, index) => `s${index % 3}/p${index}/index.html`);
+    assert.deepStrictEqual(samplePaths(paths, 7), samplePaths([...paths].reverse(), 7));
   });
 
   test('Keeps the order of paths within each directory', () => {
