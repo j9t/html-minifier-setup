@@ -2,10 +2,11 @@
 // is measured and checked on its own, then the accepted ones are rendered together, isolating
 // options that break rendering on their own or only in combination
 
-import { minify as minifyHM, presets as PRESETS } from 'html-minifier';
-import { CANDIDATES, FALLBACKS, readSchema, unclassified } from './catalog.js';
+import { presets as PRESETS } from 'html-minifier';
+import { CANDIDATES, checkCandidates, FALLBACKS, readSchema, unclassified } from './catalog.js';
 import { analyzePage, findHazards } from './hazards.js';
-import { sizeOf, sumSizes } from './measure.js';
+import { byMetric, sizeOf, sumSizes } from './measure.js';
+import { minifyInWorkers } from './workers.js';
 
 /**
  * @typedef {object} Reason
@@ -33,8 +34,9 @@ import { sizeOf, sumSizes } from './measure.js';
  * @prop {import('./measure.js').Sizes} final
  * @prop {Evaluation[]} evaluations
  * @prop {string[]} pages
+ * @prop {number | null} pagesFound Pages the sample was taken from, where it left any out
  * @prop {boolean} rendered
- * @prop {string | null} equivalence Source of the equivalence check, if used
+ * @prop {string | null} equivalence Source of the equivalence check, if used (in development)
  * @prop {string[]} notes
  * @prop {PresetComparison[]} presets
  * @prop {boolean} renderedSame Whether the configuration was found to look the same as the original pages, with every file they requested
@@ -61,8 +63,9 @@ import { sizeOf, sumSizes } from './measure.js';
  * @prop {string[]} [keep] Candidates to accept regardless of risks and gains
  * @prop {string[]} [skip] Candidates not to evaluate
  * @prop {import('./render.js').Renderer | null} [renderer]
- * @prop {import('./equivalence.js').Equivalence | null} [equivalence]
+ * @prop {import('./equivalence.js').Equivalence | null} [equivalence] HTML Minifier’s check, in development
  * @prop {(html: string, options: Record<string, unknown>) => Promise<string>} [minify]
+ * @prop {number} [pagesFound] Pages the given ones were sampled from
  * @prop {boolean} [presets] Whether to compare the result with HTML Minifier’s presets
  * @prop {{version: string, options: string[]} | null} [schema] HTML Minifier’s options, by default the installed version’s
  * @prop {(event: import('./progress.js').ProgressEvent) => void} [onProgress]
@@ -97,16 +100,14 @@ export async function customize(pagesGiven, settings = {}) {
     skip = [],
     renderer = null,
     equivalence = null,
-    minify = minifyHM,
+    minify = minifyInWorkers,
+    pagesFound,
     presets = true,
     schema = readSchema(),
     onProgress = () => {}
   } = settings;
 
-  const names = CANDIDATES.map((candidate) => candidate.name);
-  for (const name of [...keep, ...skip]) {
-    if (!names.includes(name)) throw new Error(`Unknown option: ${name} (options that can be kept or skipped: ${names.join(', ')})`);
-  }
+  checkCandidates([...keep, ...skip]);
 
   // By page rather than by ID, as pages from different roots may share one
   /** @type {Map<import('./pages.js').Page, Map<string, Promise<string>>>} */
@@ -163,12 +164,13 @@ export async function customize(pagesGiven, settings = {}) {
   // Pages the minifier can’t read with the carried options are left out
   /** @type {import('./pages.js').Page[]} */
   const pages = [];
-  for (const page of pagesGiven) {
-    try {
-      await run(page, base);
+  const readable = await Promise.allSettled(pagesGiven.map((page) => run(page, base)));
+  for (const [index, page] of pagesGiven.entries()) {
+    const outcome = readable[index];
+    if (outcome?.status === 'fulfilled') {
       pages.push(page);
-    } catch (err) {
-      notes.add(`Left out ${page.id}, which the minifier can’t read: ${messageOf(err)}`);
+    } else {
+      notes.add(`Left out ${page.id}, which the minifier can’t read: ${messageOf(outcome?.reason)}`);
     }
   }
   if (!pages.length) throw new Error(`The minifier can read none of the pages (${[...notes].join('; ')})—\`continueOnParseError\` in a starting configuration may help`);
@@ -231,13 +233,15 @@ export async function customize(pagesGiven, settings = {}) {
     const reasons = [];
     let changed = false;
     let savings = 0;
+    // Started at once, to minify pages in parallel
+    const pairs = pages.map((page) => Promise.all([run(page, ctx), run(page, full)]));
+    for (const pair of pairs) pair.catch(() => {});
     for (const [index, page] of pages.entries()) {
       await onPage(index, page);
       let outBefore;
       let outAfter;
       try {
-        outBefore = await run(page, ctx);
-        outAfter = await run(page, full);
+        [outBefore, outAfter] = await /** @type {Promise<[string, string]>} */ (pairs[index]);
       } catch (err) {
         reasons.push({ level: 'error', page: page.id, message: `Minification failed: ${messageOf(err)}` });
         continue;
@@ -261,7 +265,7 @@ export async function customize(pagesGiven, settings = {}) {
     if (reasons.some((reason) => reason.level === 'error')) return { status: 'rejected', savings, reasons };
     if (keep.includes(name)) return { status: 'kept', savings, reasons };
     if (!changed) return { status: 'no-effect', savings, reasons: [{ level: 'info', message: 'No effect on these pages' }] };
-    if (savings <= 0) return { status: 'no-gain', savings, reasons: [{ level: 'info', message: `Saves nothing ${metric === 'raw' ? 'uncompressed' : `with ${metric}`}` }, ...reasons] };
+    if (savings <= 0) return { status: 'no-gain', savings, reasons: [{ level: 'info', message: `Saves nothing ${byMetric(metric)}` }, ...reasons] };
     return { status: isBlocking(reasons) ? 'rejected' : 'accepted', savings, reasons };
   }
 
@@ -422,29 +426,38 @@ export async function customize(pagesGiven, settings = {}) {
    */
   async function settleContributions() {
     let dropped = false;
-    for (let changed = true; changed;) {
-      changed = false;
+    // After a drop, only options that gained nothing are measured again, as a drop rarely makes
+    // others gain nothing; a full round then confirms
+    /** @type {Set<Evaluation> | null} */
+    let suspects = null;
+    for (;;) {
       const used = inUse();
+      const measured = suspects ? used.filter((evaluation) => suspects?.has(evaluation)) : used;
       const final = await totalOf(combine(used));
-      for (const [index, evaluation] of used.entries()) {
-        onProgress({ phase: 'contribute', detail: evaluation.name, current: index, total: used.length });
-        await yieldTurn();
+      let done = 0;
+      onProgress({ phase: 'contribute', detail: `${measured.length} options`, current: 0, total: measured.length });
+      await Promise.all(measured.map(async (evaluation) => {
         const without = used.filter((other) => other !== evaluation && requirementOf(other.name) !== evaluation.name);
         evaluation.contribution = await totalOf(combine(without)) - final;
-      }
-      const [weakest] = used
+        onProgress({ phase: 'contribute', detail: evaluation.name, current: ++done, total: measured.length });
+      }));
+      const [weakest] = measured
         .filter((evaluation) => evaluation.status === 'accepted' && (evaluation.contribution ?? 0) <= 0)
         .sort((a, b) => (a.contribution ?? 0) - (b.contribution ?? 0));
       if (weakest) {
         weakest.status = 'no-gain';
-        weakest.reasons.push({ level: 'info', message: `Saves nothing alongside the other options (${weakest.contribution} B by ${metric})` });
+        weakest.reasons.push({ level: 'info', message: `Saves nothing alongside the other options (${weakest.contribution} B ${byMetric(metric)})` });
         delete weakest.contribution;
         dropDependents(weakest);
-        changed = true;
         dropped = true;
+        const remaining = inUse().filter((evaluation) => evaluation.status === 'accepted' && (evaluation.contribution ?? 0) <= 0);
+        suspects = remaining.length ? new Set(remaining) : null;
+      } else if (suspects) {
+        suspects = null;
+      } else {
+        return dropped;
       }
     }
-    return dropped;
   }
 
   // 3. What each option contributes; as fewer options may render differently, too, rendering
@@ -460,18 +473,16 @@ export async function customize(pagesGiven, settings = {}) {
   onProgress({ phase: 'presets', detail: presetsCompared.map(([name]) => name).join(', '), current: 0, total: presetsCompared.length });
   /** @type {PresetComparison[]} */
   const comparisons = await Promise.all(presetsCompared.map(async ([name, preset]) => {
+    /** @type {Record<string, unknown>} */
     const optionsPreset = { ...base, ...preset };
     /** @type {{page: import('./pages.js').Page, html: string}[]} */
     const minified = [];
-    let errors = 0;
-    for (const page of pages) {
-      try {
-        minified.push({ page, html: await run(page, optionsPreset) });
-      } catch {
-        errors++;
-      }
-      await yieldTurn();
+    const outcomes = await Promise.allSettled(pages.map((page) => run(page, optionsPreset)));
+    for (const [index, page] of pages.entries()) {
+      const outcome = outcomes[index];
+      if (outcome?.status === 'fulfilled') minified.push({ page, html: outcome.value });
     }
+    const errors = pages.length - minified.length;
     const verdicts = renderer ? await Promise.all(minified.map(async ({ page, html }) => {
       const verdict = await compare(page, html);
       for (const note of verdict.notes) notes.add(`${page.id}: ${note}`);
@@ -484,7 +495,11 @@ export async function customize(pagesGiven, settings = {}) {
       failing: verdicts ? verdicts.filter((verdict) => !verdict.equal && !verdict.inconclusive).length : null,
       inconclusive: verdicts ? verdicts.filter((verdict) => verdict.inconclusive).length : null,
       errors,
-      rejected: Object.keys(preset).filter((key) => /** @type {Record<string, unknown>} */ (preset)[key] && evaluations.get(key)?.status === 'rejected')
+      rejected: Object.keys(preset).filter((key) => {
+        const evaluation = evaluations.get(key);
+        // Or in use only as a gentler variant than the preset’s
+        return optionsPreset[key] && (evaluation?.status === 'rejected' || (evaluation?.variant && Object.keys(evaluation.options).some((option) => !optionsPreset[option])));
+      })
     };
   }));
   const [baseline, final] = await measuring;
@@ -496,6 +511,7 @@ export async function customize(pagesGiven, settings = {}) {
     final,
     evaluations: [...evaluations.values()],
     pages: pages.map((page) => page.id),
+    pagesFound: pagesFound !== undefined && pagesFound > pagesGiven.length ? pagesFound : null,
     rendered: Boolean(renderer),
     equivalence: equivalence?.source ?? null,
     notes: [...notes],

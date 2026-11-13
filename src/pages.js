@@ -102,37 +102,77 @@ async function fetchSameOrigin(pageUrl, ref) {
   return null;
 }
 
+// Golden ratio, whose multiples spread picks evenly over a range
+const SPREAD = 0.6180339887;
+
 /**
- * Picks pages round-robin across directories, so that a sample covers a site’s sections (and
- * so, likely, its templates) rather than the first directory’s pages
+ * Items in an order whose every start is spread across them, rather than their first ones
+ * @template T
+ * @param {T[]} items
+ * @returns {T[]}
+ */
+function spread(items) {
+  /** @type {Set<number>} */
+  const picked = new Set();
+  // Bounded, as the last gaps can take a while to hit
+  for (let step = 0; step < 4 * items.length && picked.size < items.length; step++) {
+    picked.add(Math.floor(((step * SPREAD) % 1) * items.length));
+  }
+  for (let index = 0; index < items.length; index++) picked.add(index);
+  return [...picked].map((index) => /** @type {T} */ (items[index]));
+}
+
+/**
+ * Takes from each list in turn, up to `limit` items
+ * @param {string[][]} lists
+ * @param {number} limit
+ */
+function interleave(lists, limit) {
+  /** @type {string[]} */
+  const items = [];
+  let active = lists.filter((list) => list.length);
+  for (let round = 0; active.length && items.length < limit; round++) {
+    for (const list of active) {
+      if (items.length < limit) items.push(/** @type {string} */ (list[round]));
+    }
+    active = active.filter((list) => list.length > round + 1);
+  }
+  return items;
+}
+
+/**
+ * Picks pages across a site’s sections first and then across the folders within them, so that
+ * a sample covers its templates rather than one section’s first pages; the same paths always
+ * give the same sample
  * @param {string[]} paths
  * @param {number} count
  * @returns {string[]}
  */
 export function samplePaths(paths, count) {
   if (paths.length <= count) return paths;
-  /** @type {Map<string, string[]>} */
-  const byDir = new Map();
-  for (const p of [...paths].sort()) {
-    const dir = path.dirname(p);
-    const queue = byDir.get(dir) ?? [];
-    queue.push(p);
-    byDir.set(dir, queue);
-  }
-  // Within a directory, a golden-ratio order spreads picks rather than taking its first pages
-  const queues = [...byDir.values()].map((queue) => queue
-    .map((item, index) => ({ item, key: (index * 0.6180339887) % 1 }))
-    .sort((a, b) => a.key - b.key)
-    .map(({ item }) => item));
-  /** @type {string[]} */
-  const sample = [];
-  for (let round = 0; sample.length < count; round++) {
-    for (const queue of queues) {
-      const item = queue[round];
-      if (item !== undefined && sample.length < count) sample.push(item);
+  /** @typedef {{files: string[], folders: Map<string, Folder>}} Folder */
+  /** @type {Folder} */
+  const root = { files: [], folders: new Map() };
+  for (const item of [...paths].sort()) {
+    const segments = item.split(/[\\/]/);
+    let folder = root;
+    for (const segment of segments.slice(0, -1)) {
+      let next = folder.folders.get(segment);
+      if (!next) {
+        next = { files: [], folders: new Map() };
+        folder.folders.set(segment, next);
+      }
+      folder = next;
     }
+    folder.files.push(item);
   }
-  return sample;
+  /**
+   * The first `count` pages of the folder, in the order they’re picked
+   * @param {Folder} folder
+   * @returns {string[]}
+   */
+  const order = (folder) => interleave([spread(folder.files), ...spread([...folder.folders.values()]).map(order)], count);
+  return order(root);
 }
 
 /**
@@ -185,10 +225,10 @@ export async function findOutsideLinks(root, ignore = ['node_modules']) {
 }
 
 /**
- * Reads pages from files, directories, and URLs
+ * Reads pages from files, directories, and URLs, sampled where there are more
  * @param {string[]} inputs
  * @param {{extensions?: string[], ignore?: string[], sample?: number}} [settings]
- * @returns {Promise<Page[]>}
+ * @returns {Promise<Page[] & {found: number}>} `found`: pages found before sampling
  */
 export async function loadPages(inputs, { extensions = EXTENSIONS_DEFAULT, ignore = ['node_modules'], sample = 20 } = {}) {
   // As HTML Minifier reads them, with `*` for all files
@@ -213,7 +253,7 @@ export async function loadPages(inputs, { extensions = EXTENSIONS_DEFAULT, ignor
   }
 
   const keys = samplePaths([...files.map(({ file }) => file), ...urls], sample);
-  return Promise.all(keys.map(async (key) => {
+  const pages = await Promise.all(keys.map(async (key) => {
     if (RE_URL_INPUT.test(key)) {
       const response = await fetch(key, { signal: AbortSignal.timeout(30000) });
       if (!response.ok) throw new Error(`Couldn’t fetch ${key}: ${response.status}`);
@@ -227,4 +267,5 @@ export async function loadPages(inputs, { extensions = EXTENSIONS_DEFAULT, ignor
       root
     });
   }));
+  return Object.assign(pages, { found: files.length + urls.length });
 }

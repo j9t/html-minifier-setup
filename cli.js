@@ -5,7 +5,7 @@ import path from 'node:path';
 import readline from 'node:readline/promises';
 import { pathToFileURL } from 'node:url';
 import { Command, Option } from 'commander';
-import { splitConfig } from './src/catalog.js';
+import { checkCandidates, splitConfig } from './src/catalog.js';
 import { paint, supportsColor } from './src/color.js';
 import { loadEquivalence } from './src/equivalence.js';
 import { METRICS } from './src/measure.js';
@@ -19,6 +19,8 @@ import { CONFIG_FILE as CONFIG_FILE_DEFAULT, fetchLatestVersion, isYes, offerSet
 let progress = createProgress();
 
 const { version } = JSON.parse(fs.readFileSync(new URL('package.json', import.meta.url), 'utf8'));
+
+const INTRO = 'This is HTML Minifier Setup, identifying a recommended configuration for HTML Minifier.';
 
 /** @param {unknown} value */
 const list = (value) => (Array.isArray(value) ? value.map(String) : String(value).split(',')).map((item) => item.trim()).filter(Boolean);
@@ -47,11 +49,19 @@ const viewports = (value) => {
  */
 async function readConfig(file) {
   const resolved = path.resolve(file);
-  if (/\.[cm]?js$/.test(resolved)) {
+  const load = async () => {
     const module = await import(pathToFileURL(resolved).href);
-    return module.default ?? module;
+    return 'default' in module ? module.default : module;
+  };
+  if (/\.[cm]?js$/i.test(resolved)) return load();
+  const text = (await fs.promises.readFile(resolved, 'utf8')).replace(/^\uFEFF/, '');
+  // As HTML Minifier reads them: other files as JSON, or else as module
+  if (/\.json$/i.test(resolved)) return JSON.parse(text);
+  try {
+    return JSON.parse(text);
+  } catch {
+    return load();
   }
-  return JSON.parse(await fs.promises.readFile(resolved, 'utf8'));
 }
 
 const program = new Command()
@@ -68,7 +78,8 @@ const program = new Command()
   .option('--keep <list>', 'Options to recommend regardless of risks and gains', list, [])
   .option('--skip <list>', 'Options not to evaluate', list, [])
   .option('--no-render', 'Skip the render check (not recommending options that need it)')
-  .option('--no-equivalence', 'Skip HTML Minifier’s equivalence check')
+  // For development, where an HTML Minifier checkout sits next to this one
+  .addOption(new Option('--no-equivalence', 'Skip HTML Minifier’s equivalence check').hideHelp())
   .option('--no-presets', 'Skip comparing with HTML Minifier’s presets')
   .option('--viewports <list>', 'Viewports to render at', viewports, VIEWPORTS_DEFAULT)
   .option('--concurrency <count>', 'Pages to render at once', positiveInteger, CONCURRENCY_DEFAULT)
@@ -77,6 +88,7 @@ const program = new Command()
   .option('-v, --verbose', 'Show every page and viewport in details, progress line by line where STDERR isn’t a terminal, and more notes')
   .action(async (inputs, settings, command) => {
     if (settings.verbose) progress = createProgress({ verbose: true });
+    if (process.stderr.isTTY && !settings.json) progress.log(`${INTRO}\n`);
     const interactive = Boolean(process.stdin.isTTY && process.stdout.isTTY) && !settings.output && !settings.json;
     // Asked while pages are evaluated, for the offers at the end
     const latest = interactive && !process.env.CI && !process.env.NO_UPDATE_NOTIFIER ? fetchLatestVersion('html-minifier') : null;
@@ -87,6 +99,7 @@ const program = new Command()
       fileConfig = CONFIG_FILE_DEFAULT;
       progress.log(`Using config file ${CONFIG_FILE_DEFAULT}`);
     }
+    checkCandidates([...settings.keep, ...settings.skip]);
     const { base, values, preserved, ignored } = splitConfig(fileConfig ? await readConfig(fileConfig) : {});
     if (ignored.length && settings.verbose) progress.log(`Not carried from ${fileConfig}: ${ignored.join(', ')}`);
     /** @param {'fileExt' | 'ignoreDir'} name */
@@ -114,6 +127,7 @@ const program = new Command()
       const result = await customize(pages, {
         base,
         values,
+        pagesFound: pages.found,
         metric: settings.metric,
         keep: settings.keep,
         skip: settings.skip,

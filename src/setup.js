@@ -13,7 +13,7 @@ export const CONFIG_FILE = 'html-minifier.config.json';
 const LOCKFILES = [['pnpm-lock.yaml', 'pnpm'], ['yarn.lock', 'yarn'], ['bun.lock', 'bun'], ['bun.lockb', 'bun'], ['package-lock.json', 'npm']];
 
 /** @type {Record<PackageManager, string[]>} */
-export const INSTALL_ARGS = {
+const INSTALL_ARGS = {
   npm: ['install', '--save-dev'],
   pnpm: ['add', '--save-dev'],
   yarn: ['add', '--dev'],
@@ -200,7 +200,7 @@ export async function offerSetup({ config, dirProject, configPreset = null, cwd,
     const dirInstalled = path.dirname(path.dirname(found.dir));
     const where = dirInstalled === cwd ? '' : ` in ${describeDir(dirInstalled, cwd)}`;
     if (!versionLatest || !isNewer(versionLatest, found.version)) {
-      log(`HTML Minifier ${found.version} is installed${where}${versionLatest ? ' (latest)' : ''}`);
+      log(`HTML Minifier ${found.version}${versionLatest ? ' (latest)' : ''} is installed${where}`);
     } else if (isYes(await ask(`Update HTML Minifier ${found.version}${where} to ${versionLatest} (latest)? (y/N) `))) {
       if (!await install(dirInstalled, detectPackageManager(dirInstalled))) log('Update failed');
     }

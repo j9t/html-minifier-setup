@@ -25,8 +25,8 @@ import { customize } from '../src/select.js';
 const dirBenchmark = path.dirname(fileURLToPath(import.meta.url));
 
 export const FILE_BASELINE = 'benchmark-baseline.json';
-export const INPUTS_DEFAULT = [path.join(dirBenchmark, '..', 'test', 'fixtures', 'site')];
-export const ITERATIONS_DEFAULT = 3;
+const INPUTS_DEFAULT = [path.join(dirBenchmark, '..', 'test', 'fixtures', 'site')];
+const ITERATIONS_DEFAULT = 3;
 
 // One warm-up run (discarded) before the timed iterations
 const WARMUP = 1;
@@ -42,7 +42,7 @@ const NOISE_WARN_MIN_MS = 100;
 /** @typedef {{created: string, git: {branch: string, commit: string} | null, inputs: string[], iterations: number, render: boolean, phases: Partial<Record<Phase, Timing>>}} Baseline */
 
 /** @param {number[]} times */
-export const fastest = (times) => Math.min(...times);
+const fastest = (times) => Math.min(...times);
 
 /** @param {number[]} times */
 export function median(times) {

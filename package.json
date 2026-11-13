@@ -39,7 +39,8 @@
     "minification",
     "minifier",
     "optimization",
-    "setup"
+    "setup",
+    "wizard"
   ],
   "license": "MIT",
   "name": "html-minifier-setup",
@@ -56,5 +57,5 @@
     "test:watch": "node --test --watch \"test/**/*.test.js\""
   },
   "type": "module",
-  "version": "0.1.0"
+  "version": "0.2.0"
 }

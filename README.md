@@ -16,7 +16,7 @@ npx html-minifier-setup [inputs...] [options]
 
 (Like HTML Minifier, HTML Minifier Setup requires Node.js ≥22.13.)
 
-Inputs are HTML files, directories, or URLs (default: the current directory). From directories, up to 20 pages (`--sample`) are picked, spread across subdirectories to cover a site’s templates.
+Inputs are HTML files, directories, or URLs (default: the current directory). From directories, up to 20 pages (`--sample`) are picked, spread across a site’s sections first and then across the folders within them, to cover its templates. The same pages give the same sample, and the report says how many pages it was taken from.
 
 The render check, which catches most of what static checks can’t, uses Playwright’s Chromium, or else Chrome or Edge, if installed. Where none is found, HTML Minifier Setup offers to download Chromium.
 
@@ -43,7 +43,6 @@ npx html-minifier --input-dir ./dist --output-dir ./dist
 | `--keep <list>` | Options to recommend regardless of risks and gains |
 | `--skip <list>` | Options not to evaluate |
 | `--no-render` | Skip the render check, not recommending options that need it |
-| `--no-equivalence` | Skip HTML Minifier’s equivalence check |
 | `--no-presets` | Skip comparing with HTML Minifier’s presets |
 | `--viewports <list>` | Viewports to render at (default: `1280x800,390x844`) |
 | `--concurrency <count>` | Pages to render at once, across viewports and options (default: 4) |
@@ -85,7 +84,6 @@ Where full whitespace collapsing breaks a page, HTML Minifier Setup falls back t
 | --- | --- | --- |
 | Static | What scripts and style sheets of the page (including linked local or same-origin ones) rely on: comments that frameworks read (e.g., Knockout, Lit, hydration markers), empty elements scripts fill, classes scripts add after `removeUnusedCSS` removed their rules, attributes that style sheets or scripts select on, and CSS that keeps whitespace | Nothing |
 | Render | Anything that changes what the page looks like on load, or adds script errors | Chromium, Chrome, or Edge |
-| Equivalence | HTML Minifier bugs, as HTML Minifier’s own check finds output that means something else to browsers than its source—for the options that check models | An HTML Minifier checkout next to this one (for now) |
 
 In the report, options are **recommended**, **kept** (as asked), or not used because they **don’t fit** these pages, have **no gain** by the chosen metric, have **no effect**, or were **skipped**. With `--json`, statuses are `accepted`, `kept`, `rejected`, `no-gain`, `no-effect`, and `skipped`.
 
@@ -100,7 +98,7 @@ The checks can show that options change pages, not that they never will:
 * The render check sees pages as they load, not after interaction (e.g., a menu a script opens, using classes `removeUnusedCSS` removed).
 * Scripts from other origins can’t be read, and classes or attributes a script builds at runtime (e.g., `'is-' + state`) can’t be found.
 * Rendering must match pixel for pixel, so lossy changes (e.g., SVG coordinates rounded by `minifySVG`) count as differences.
-* A page sample may miss templates the rest of the site uses.
+* A page sample may miss templates the rest of the site uses—for sites with many different templates, raise `--sample`.
 * Options that have no effect can’t be judged: On pages that are minified already, most options are left out, as there’s nothing left for them to do. Run HTML Minifier Setup on pages before minification instead.
 
 Test the configuration on your site before deploying it.
@@ -110,3 +108,38 @@ Options that newer versions of HTML Minifier add are evaluated once HTML Minifie
 Options HTML Minifier can’t express in one configuration are not evaluated: `minifyURLs` depends on each page’s URL, and `removeTagWhitespace` produces invalid HTML.
 
 Large pages take longer, especially by `brotli`.
+
+## Working on HTML Minifier Setup
+
+Note: This section assumes working with dependencies installed (`npm i`).
+
+### Tests
+
+```shell
+npm test
+```
+
+Runs the type check (`tsc`) and then the suites in test/. Render tests skip where no browser is installed (`npx playwright install chromium` installs one). `npm run lint` covers the rest.
+
+### Equivalence check
+
+With [an HTML Minifier](https://github.com/j9t/html-minifier) checkout next to this one (../html-minifier), runs also use HTML Minifier’s equivalence check (test/equivalence/ there), which finds output that means something else to browsers than its source—HTML Minifier bugs rather than what a site relies on. Options whose output it flags don’t fit, and the report names the check and the HTML Minifier versions involved. It covers the options the check models.
+
+The check runs on the main thread and adds noticeably to the time evaluating options takes; `--no-equivalence` skips it. Without a checkout, as for users, it doesn’t run, and test/equivalence.test.js skips.
+
+### Benchmarks
+
+```shell
+npm run benchmark
+```
+
+Times a run by phase as the CLI does it—including the equivalence check, where available, and the presets—on the test fixtures, or on files, directories, or URLs passed as arguments. Times are each phase’s fastest iteration.
+
+Parameters:
+
+* No argument: Runs and, if a baseline exists, shows deltas
+* `--save`: Saves the run as the baseline (benchmark/benchmark-baseline.json, e.g., on `main` before switching to a branch)
+* `--no-render`: Skips the render check, timing what doesn’t need a browser
+* `--iterations=N`: Sets the number of timed iterations (default: 3)
+
+Runs are only compared with a baseline taken with the same inputs, render setting, and iterations. To profile, run `node --cpu-prof benchmark/benchmark.js` and load the .cpuprofile file in Chrome DevTools or with `npx speedscope`.

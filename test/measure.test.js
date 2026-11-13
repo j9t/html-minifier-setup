@@ -25,7 +25,7 @@ describe('`measure`', () => {
 });
 
 describe('`addSizes` and `sumSizes`', () => {
-  test('Add per metric', () => {
+  test('Adds per metric', () => {
     const a = { raw: 10, gzip: 5, brotli: 4 };
     const b = { raw: 3, gzip: 2, brotli: 1 };
     assert.deepStrictEqual(addSizes(a, b), { raw: 13, gzip: 7, brotli: 5 });

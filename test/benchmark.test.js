@@ -6,7 +6,7 @@ import path from 'node:path';
 import { baselineMismatches, createPhaseTimer, FILE_BASELINE, formatDelta, main, median, parseArgs, spread } from '../benchmark/benchmark.js';
 
 describe('Benchmark helpers', () => {
-  test('Compute medians and spreads', () => {
+  test('Computes medians and spreads', () => {
     assert.strictEqual(median([3, 1, 2]), 2);
     assert.strictEqual(median([4, 1, 3, 2]), 2.5);
     assert.strictEqual(spread([100, 110, 125]), 25);

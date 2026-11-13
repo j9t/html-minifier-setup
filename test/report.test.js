@@ -21,6 +21,7 @@ const resultOf = (final, evaluations = []) => ({
   pages: ['index.html'],
   rendered: false,
   equivalence: null,
+  pagesFound: null,
   notes: [],
   presets: [],
   blocked: [],
@@ -35,6 +36,23 @@ describe('`formatReport`', () => {
     assert.match(report, new RegExp(`Uncompressed: .*${ESC}\\[32m−10\\.0%`));
     assert.match(report, new RegExp(`Gzip: .*${ESC}\\[31m\\+2\\.5%`));
     assert.match(report, /Brotli: .*±0%/);
+  });
+
+  test('Mentions the equivalence check only where it ran, as in development', () => {
+    assert.doesNotMatch(formatReport(resultOf(SIZES)), /quivalence/);
+    assert.match(formatReport({ ...resultOf(SIZES), equivalence: '../html-minifier' }), /^• Equivalence-checked with \.\.\/html-minifier$/m);
+  });
+
+  test('Names how many pages the sample was taken from, and how to evaluate more', () => {
+    assert.match(formatReport({ ...resultOf(SIZES), pagesFound: 1234 }), /^• Evaluated 1 of 1,234 pages \(use `--sample` to evaluate more\), judging/m);
+    assert.doesNotMatch(formatReport(resultOf(SIZES)), /--sample/);
+  });
+
+  test('Names compression methods as words, capitalized', () => {
+    const report = formatReport({ ...resultOf(SIZES), metric: 'brotli', presets: [{ name: 'conservative', size: 300, failing: null, inconclusive: null, errors: 0, rejected: [] }] });
+    assert.match(report, /judging gains by Brotli size/);
+    assert.match(report, /Compared with HTML Minifier’s presets \(Brotli\):/);
+    assert.match(formatReport({ ...resultOf(SIZES), metric: 'raw' }), /judging gains by uncompressed size/);
   });
 
   test('Uses no escape codes without color', () => {
@@ -60,8 +78,8 @@ describe('`formatReport`', () => {
     result.rendered = true;
     result.blocked = ['a.css', 'b.css', 'c.css', 'fonts/a.woff2'];
     const report = formatReport(result);
-    assert.match(report, /: The recommended configuration may not look the same as the original pages, as files outside the site were missing\n• Rendered without 4 files that symbolic links lead to outside the site \(a\.css, b\.css, c\.css, and 1 more\), which may change how pages look—`--follow-links` follows them\n• Not equivalence-checked\n/);
-    assert.match(report, /info: Looks the same where checks were needed, but without files outside the site\n/);
+    assert.match(report, /: The recommended configuration may not look the same as the original pages, as files outside the site were missing\n• Rendered without 4 files that symbolic links lead to outside the site \(a\.css, b\.css, c\.css, and 1 more\), which may change how pages look—`--follow-links` follows them\n\n/);
+    assert.match(report, /Info: Looks the same where checks were needed, but without files outside the site\n/);
     result.blocked = [];
     result.renderedSame = true;
     const reportServed = formatReport(result);
@@ -172,9 +190,9 @@ describe('`formatReport` details', () => {
 
   test('Sums up render differences by pages, with an example, and repeats nothing', () => {
     const report = formatReport(resultOf(SIZES, [{ name: 'collapseWhitespace', status: 'rejected', reasons }]));
-    assert.match(report, /looks different · 2 pages \(a\.html, b\.html\), e\.g\., b\.html: Text differs at 1280×800: “a {2}b” became “a b”/);
-    assert.match(report, /looks different · same 2 pages/);
-    assert.match(report, /risk · c\.html, d\.html, e\.html, and 1 more: Removes a comment/);
+    assert.match(report, /Looks different on 2 pages \(a\.html, b\.html\), e\.g\., b\.html: Text differs at 1280×800: “a {2}b” became “a b”/);
+    assert.match(report, /Looks different on the same 2 pages/);
+    assert.match(report, /Risk \(c\.html, d\.html, e\.html, and 1 more\): Removes a comment/);
     assert.strictEqual(report.match(/Text differs/g)?.length, 1);
     assert.match(report, /-v/);
   });
@@ -183,6 +201,8 @@ describe('`formatReport` details', () => {
     const report = formatReport(resultOf(SIZES, [{ name: 'collapseWhitespace', status: 'rejected', reasons }]), { verbose: true });
     assert.strictEqual(report.match(/Text differs/g)?.length, 3);
     assert.strictEqual(report.match(/Removes a comment/g)?.length, 4);
+    assert.match(report, /^ {4}Risk \(c\.html\): Removes a comment$/m);
+    assert.match(report, /^ {4}Looks different \(b\.html\): Looks different at 390×844$/m);
   });
 });
 
@@ -192,7 +212,7 @@ describe('`formatReport` paths', () => {
     result.pages = ['Security/Faq/a.html', 'Security/Faq/b.html'];
     const report = formatReport(result);
     assert.match(report, /Evaluated 2 pages in Security\/Faq\//);
-    assert.match(report, /risk · a\.html: Removes a comment/);
+    assert.match(report, /Risk \(a\.html\): Removes a comment/);
   });
 
   test('Keeps page paths without a shared folder', () => {
@@ -200,8 +220,8 @@ describe('`formatReport` paths', () => {
     result.pages = ['blog/a.html', 'index.html'];
     const report = formatReport(result);
     assert.match(report, /Evaluated 2 pages, judging/);
-    assert.match(report, /^• Evaluated 2 pages, judging gains by gzip size\n• Not render-checked.*\n• Not equivalence-checked\n\n/);
-    assert.match(report, /risk · blog\/a\.html: /);
+    assert.match(report, /^• Evaluated 2 pages, judging gains by Gzip size\n• Not render-checked.*\n\n/);
+    assert.match(report, /Risk \(blog\/a\.html\): /);
   });
 });
 
@@ -218,7 +238,7 @@ describe('`formatReport` rendering', () => {
       { name: 'collapseWhitespace', status: 'rejected', reasons: [reason] },
       { name: 'sortAttributes', status: 'rejected', reasons: [reason] }
     ]));
-    assert.match(report, /collapseWhitespace \(doesn’t fit\)\n {4}why: .*whitespace.*—that’s how the option works, not an error/);
-    assert.match(report, /sortAttributes \(doesn’t fit\)\n {4}why: Not meant to change how pages look—possibly an HTML Minifier bug worth reporting/);
+    assert.match(report, /collapseWhitespace \(doesn’t fit\)\n {4}Why: .*whitespace.*—that’s how the option works, not an error/);
+    assert.match(report, /sortAttributes \(doesn’t fit\)\n {4}Why: Not meant to change how pages look—possibly an HTML Minifier bug worth reporting/);
   });
 });
