@@ -124,8 +124,8 @@ function withoutArguments(selector) {
  * @param {Element[]} elements
  */
 function mayMatch(selector, elements) {
-  return selector.split(',').some((part) => {
-    const compound = (withoutArguments(part.trim()).replace(/::?[\w-]+/g, '').split(/[\s>+~]+/).pop() ?? '').trim();
+  return withoutArguments(selector).split(',').some((part) => {
+    const compound = (part.trim().replace(/::?[\w-]+/g, '').split(/[\s>+~]+/).pop() ?? '').trim();
     const tag = compound.match(/^[a-z][\w-]*/i)?.[0].toLowerCase();
     const classes = [...compound.matchAll(/\.([\w-]+)/g)].map((match) => match[1] ?? '');
     const ids = [...compound.matchAll(/#([\w-]+)/g)].map((match) => match[1] ?? '');

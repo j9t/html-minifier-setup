@@ -76,6 +76,11 @@ describe('`findHazards`', () => {
     assert.strictEqual(levels(findHazards('collapseWhitespace', context, '<div><p>a\nb</p></div>', '<div><p>a b</p></div>'), 'check').length, 1);
   });
 
+  test('Keeps commas in parentheses from splitting whitespace rules', async () => {
+    const context = await analyze('<style>span:is(.a, .b) { white-space: pre-line }</style>');
+    assert.deepStrictEqual(findHazards('collapseWhitespace', context, '<p class="b">a\nb</p>', '<p class="b">a b</p>'), []);
+  });
+
   test('Finds no whitespace hazard where no element matches the rule', async () => {
     const context = await analyze('<style>.poem { white-space: pre-line }</style>');
     assert.deepStrictEqual(findHazards('collapseWhitespace', context, '<p class="prose">a\nb</p>', '<p class="prose">a b</p>'), []);
