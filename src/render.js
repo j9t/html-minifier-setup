@@ -136,6 +136,18 @@ function firstDifference(a, b) {
   return lost === undefined && gained === undefined ? 'line breaks or spacing changed' : `${quote(lost)} became ${quote(gained)}`;
 }
 
+/**
+ * The original’s two captures as one, with what stayed the same between loads and every file
+ * either load didn’t get
+ * @param {Capture} first
+ * @param {Capture} second
+ */
+export const combineOriginals = (first, second) => ({
+  capture: { ...first, blocked: [...new Set([...first.blocked, ...second.blocked])] },
+  stableShot: first.shot.equals(second.shot),
+  stableText: first.text === second.text
+});
+
 // Playwright’s Chromium, or else browsers people tend to have, as original and minified pages are
 // compared in the same browser
 /** @type {Browser[]} */
@@ -305,7 +317,7 @@ export async function createRenderer({ viewports = VIEWPORTS_DEFAULT, timeout = 
     if (!pending) {
       pending = (async () => {
         const [first, second] = await Promise.all([capture(page, page.html, viewport), capture(page, page.html, viewport)]);
-        return { capture: first, stableShot: first.shot.equals(second.shot), stableText: first.text === second.text };
+        return combineOriginals(first, second);
       })();
       byViewport.set(key, pending);
     }

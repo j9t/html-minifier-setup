@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createPage, loadPages } from '../src/pages.js';
-import { createLimit, createRenderer, playwrightCli, serve } from '../src/render.js';
+import { combineOriginals, createLimit, createRenderer, playwrightCli, serve } from '../src/render.js';
 
 const dirSite = path.join(path.dirname(fileURLToPath(import.meta.url)), 'fixtures', 'site');
 const { renderer, reason } = await createRenderer({ viewports: [{ width: 800, height: 600 }] });
@@ -151,6 +151,18 @@ describe('createLimit', () => {
     const limit = createLimit(1);
     await assert.rejects(limit(async () => { throw new Error('Failed'); }), /Failed/);
     assert.strictEqual(await limit(async () => 'next'), 'next');
+  });
+});
+
+describe('combineOriginals', () => {
+  test('Keeps files either load of the original didn’t get, telling what stayed the same between loads', () => {
+    const first = { shot: Buffer.from('a'), text: 'a', errors: [], blocked: ['a.css'] };
+    const second = { shot: Buffer.from('a'), text: 'b', errors: [], blocked: ['a.css', 'b.css'] };
+    const { capture, stableShot, stableText } = combineOriginals(first, second);
+    assert.deepStrictEqual(capture.blocked, ['a.css', 'b.css']);
+    assert.strictEqual(capture.text, 'a');
+    assert.strictEqual(stableShot, true);
+    assert.strictEqual(stableText, false);
   });
 });
 
