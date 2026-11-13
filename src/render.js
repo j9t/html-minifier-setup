@@ -30,6 +30,7 @@ import { isInside } from './pages.js';
 /** @typedef {{width: number, height: number}} Viewport */
 /** @typedef {{shot: Buffer, text: string, errors: string[], blocked: string[]}} Capture */
 
+// @@ Probe a higher or core-based default, weighing speed against memory and inconclusive renders
 export const CONCURRENCY_DEFAULT = 4;
 
 /** @type {Viewport[]} */
