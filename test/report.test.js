@@ -37,6 +37,11 @@ describe('`formatReport`', () => {
     assert.match(report, /Brotli: .*±0%/);
   });
 
+  test('Mentions the equivalence check only where it ran, as in development', () => {
+    assert.doesNotMatch(formatReport(resultOf(SIZES)), /quivalence/);
+    assert.match(formatReport({ ...resultOf(SIZES), equivalence: '../html-minifier' }), /^• Equivalence-checked with \.\.\/html-minifier$/m);
+  });
+
   test('Uses no escape codes without color', () => {
     const report = formatReport(resultOf({ raw: 900, gzip: 410, brotli: 300 }));
     assert.doesNotMatch(report, new RegExp(ESC));
@@ -60,7 +65,7 @@ describe('`formatReport`', () => {
     result.rendered = true;
     result.blocked = ['a.css', 'b.css', 'c.css', 'fonts/a.woff2'];
     const report = formatReport(result);
-    assert.match(report, /: The recommended configuration may not look the same as the original pages, as files outside the site were missing\n• Rendered without 4 files that symbolic links lead to outside the site \(a\.css, b\.css, c\.css, and 1 more\), which may change how pages look—`--follow-links` follows them\n• Not equivalence-checked\n/);
+    assert.match(report, /: The recommended configuration may not look the same as the original pages, as files outside the site were missing\n• Rendered without 4 files that symbolic links lead to outside the site \(a\.css, b\.css, c\.css, and 1 more\), which may change how pages look—`--follow-links` follows them\n\n/);
     assert.match(report, /info: Looks the same where checks were needed, but without files outside the site\n/);
     result.blocked = [];
     result.renderedSame = true;
@@ -200,7 +205,7 @@ describe('`formatReport` paths', () => {
     result.pages = ['blog/a.html', 'index.html'];
     const report = formatReport(result);
     assert.match(report, /Evaluated 2 pages, judging/);
-    assert.match(report, /^• Evaluated 2 pages, judging gains by gzip size\n• Not render-checked.*\n• Not equivalence-checked\n\n/);
+    assert.match(report, /^• Evaluated 2 pages, judging gains by gzip size\n• Not render-checked.*\n\n/);
     assert.match(report, /risk · blog\/a\.html: /);
   });
 });

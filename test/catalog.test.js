@@ -1,6 +1,6 @@
 import { describe, test } from 'node:test';
 import assert from 'node:assert';
-import { CANDIDATES, CARRIED, EXCLUDED, FALLBACKS, MODIFIERS, PRESERVED, readSchema, splitConfig, unclassified } from '../src/catalog.js';
+import { CANDIDATES, CARRIED, checkCandidates, EXCLUDED, FALLBACKS, MODIFIERS, PRESERVED, readSchema, splitConfig, unclassified } from '../src/catalog.js';
 const names = CANDIDATES.map((candidate) => candidate.name);
 
 describe('`catalog`', () => {
@@ -29,6 +29,11 @@ describe('`catalog`', () => {
     CANDIDATES.forEach((candidate, index) => {
       if (candidate.requires) assert.ok(names.indexOf(candidate.requires) < index, candidate.name);
     });
+  });
+
+  test('Fails on names that aren’t candidates, naming those that are', () => {
+    assert.doesNotThrow(() => checkCandidates(['collapseWhitespace', 'removeUnusedCSS']));
+    assert.throws(() => checkCandidates(['collapseWhitespace', 'collapseEverything']), /Unknown option: collapseEverything \(options that can be kept or skipped: collapseWhitespace, /);
   });
 
   test('Offers fallbacks only for candidates, each setting the candidate itself', () => {

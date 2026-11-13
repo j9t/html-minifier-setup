@@ -1,5 +1,4 @@
 export { CANDIDATES, CARRIED, EXCLUDED, FALLBACKS, MODIFIERS, PRESERVED, splitConfig } from './catalog.js';
-export { loadEquivalence } from './equivalence.js';
 export { analyzePage, findHazards } from './hazards.js';
 export { measure } from './measure.js';
 export { createPage, loadPages } from './pages.js';

@@ -109,6 +109,17 @@ export const EXCLUDED = {
 const CLASSIFIED = new Set([...CANDIDATES.map((candidate) => candidate.name), ...MODIFIERS, ...CARRIED, ...PRESERVED, ...Object.keys(EXCLUDED)]);
 
 /**
+ * Fails on names that aren’t candidates, as options to keep or skip
+ * @param {string[]} names
+ */
+export function checkCandidates(names) {
+  const known = CANDIDATES.map((candidate) => candidate.name);
+  for (const name of names) {
+    if (!known.includes(name)) throw new Error(`Unknown option: ${name} (options that can be kept or skipped: ${known.join(', ')})`);
+  }
+}
+
+/**
  * Options without a place here
  * @param {string[]} options
  */

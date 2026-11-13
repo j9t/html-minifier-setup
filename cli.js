@@ -5,7 +5,7 @@ import path from 'node:path';
 import readline from 'node:readline/promises';
 import { pathToFileURL } from 'node:url';
 import { Command, Option } from 'commander';
-import { splitConfig } from './src/catalog.js';
+import { checkCandidates, splitConfig } from './src/catalog.js';
 import { paint, supportsColor } from './src/color.js';
 import { loadEquivalence } from './src/equivalence.js';
 import { METRICS } from './src/measure.js';
@@ -78,7 +78,8 @@ const program = new Command()
   .option('--keep <list>', 'Options to recommend regardless of risks and gains', list, [])
   .option('--skip <list>', 'Options not to evaluate', list, [])
   .option('--no-render', 'Skip the render check (not recommending options that need it)')
-  .option('--no-equivalence', 'Skip HTML Minifier’s equivalence check')
+  // For development, where an HTML Minifier checkout sits next to this one
+  .addOption(new Option('--no-equivalence', 'Skip HTML Minifier’s equivalence check').hideHelp())
   .option('--no-presets', 'Skip comparing with HTML Minifier’s presets')
   .option('--viewports <list>', 'Viewports to render at', viewports, VIEWPORTS_DEFAULT)
   .option('--concurrency <count>', 'Pages to render at once', positiveInteger, CONCURRENCY_DEFAULT)
@@ -98,6 +99,7 @@ const program = new Command()
       fileConfig = CONFIG_FILE_DEFAULT;
       progress.log(`Using config file ${CONFIG_FILE_DEFAULT}`);
     }
+    checkCandidates([...settings.keep, ...settings.skip]);
     const { base, values, preserved, ignored } = splitConfig(fileConfig ? await readConfig(fileConfig) : {});
     if (ignored.length && settings.verbose) progress.log(`Not carried from ${fileConfig}: ${ignored.join(', ')}`);
     /** @param {'fileExt' | 'ignoreDir'} name */

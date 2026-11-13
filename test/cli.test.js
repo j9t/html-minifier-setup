@@ -161,6 +161,20 @@ describe('CLI', () => {
     assert.match(stderr, /collapseEverything/);
   });
 
+  test('Fails on unknown options to keep or skip before starting the browser', async () => {
+    const { code, stderr } = await run([dirSite, '-v', '--keep', 'collapseEverything']);
+    assert.strictEqual(code, 1);
+    assert.match(stderr, /collapseEverything/);
+    assert.doesNotMatch(stderr, /Starting browser/);
+  });
+
+  test('Leaves development settings out of its help', async () => {
+    const { code, stdout } = await run(['--help']);
+    assert.strictEqual(code, 0);
+    assert.match(stdout, /--no-presets/);
+    assert.doesNotMatch(stdout, /equivalence/);
+  });
+
   test('Fails on missing or empty viewports', async () => {
     for (const value of ['', '0x800', '1280x0']) {
       const { code, stderr } = await run([dirSite, '--viewports', value]);

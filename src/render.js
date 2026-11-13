@@ -151,7 +151,7 @@ export const combineOriginals = (first, second) => ({
 // Playwright’s Chromium, or else browsers people tend to have, as original and minified pages are
 // compared in the same browser
 /** @type {Browser[]} */
-export const BROWSERS = [{ name: 'Chromium' }, { name: 'Chrome', channel: 'chrome' }, { name: 'Edge', channel: 'msedge' }];
+const BROWSERS = [{ name: 'Chromium' }, { name: 'Chrome', channel: 'chrome' }, { name: 'Edge', channel: 'msedge' }];
 
 /** The path of Playwright’s command line interface, if installed */
 export function playwrightCli() {

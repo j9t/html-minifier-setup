@@ -3,8 +3,8 @@ import zlib from 'node:zlib';
 
 // As in HTML Minifier’s benchmarks: common defaults for on-the-fly compression (quality 11, for
 // files precompressed at build time, takes seconds per large file)
-export const GZIP_LEVEL = 6;
-export const BROTLI_QUALITY = 6;
+const GZIP_LEVEL = 6;
+const BROTLI_QUALITY = 6;
 
 const brotliCompress = promisify(zlib.brotliCompress);
 const gzipCompress = promisify(zlib.gzip);
@@ -16,7 +16,7 @@ const gzipCompress = promisify(zlib.gzip);
 export const METRICS = ['raw', 'gzip', 'brotli'];
 
 /** @type {Sizes} */
-export const SIZES_ZERO = Object.freeze({ raw: 0, gzip: 0, brotli: 0 });
+const SIZES_ZERO = Object.freeze({ raw: 0, gzip: 0, brotli: 0 });
 
 /**
  * Size by one metric as servers would send it, compressed off the main thread

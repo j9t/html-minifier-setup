@@ -52,8 +52,8 @@ const COMMENTS_MEANINGFUL = [
   [/^\s*(?:Instance|Template)(?:Begin|End)\b|^\s*#(?:Begin|End)(?:Library|Template)/, 'template editor region']
 ];
 
-export const OPTIONS_ATTRIBUTES = new Set(['collapseAttributeWhitespace', 'collapseBooleanAttributes', 'removeDefaultTypeAttributes', 'removeEmptyAttributes', 'removeRedundantAttributes', 'sortClassNames']);
-export const OPTIONS_WHITESPACE = new Set(['collapseInlineTagWhitespace', 'collapseNoBreakSpaces', 'collapseWhitespace', 'trimCustomFragments']);
+const OPTIONS_ATTRIBUTES = new Set(['collapseAttributeWhitespace', 'collapseBooleanAttributes', 'removeDefaultTypeAttributes', 'removeEmptyAttributes', 'removeRedundantAttributes', 'sortClassNames']);
+const OPTIONS_WHITESPACE = new Set(['collapseInlineTagWhitespace', 'collapseNoBreakSpaces', 'collapseWhitespace', 'trimCustomFragments']);
 
 /** @param {string} text */
 const clip = (text, length = 60) => text.length > length ? `${text.slice(0, length - 1)}…` : text;

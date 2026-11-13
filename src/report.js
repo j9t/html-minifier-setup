@@ -4,7 +4,7 @@ import { paint } from './color.js';
 import { METRICS } from './measure.js';
 import { MESSAGE_RENDERS_SAME } from './select.js';
 
-export const URL_SCHEMA = 'https://raw.githubusercontent.com/j9t/html-minifier/main/html-minifier.schema.json';
+const URL_SCHEMA = 'https://raw.githubusercontent.com/j9t/html-minifier/main/html-minifier.schema.json';
 
 const MAX_LISTED = 3;
 
@@ -179,7 +179,8 @@ export function formatReport(result, { renderReason = '', color = false, verbose
       ? `• ${renderSummary}`
       : `• Not render-checked${renderReason ? `: ${renderReason}` : ''}—options that need a render check aren’t recommended`,
     ...result.rendered && blocked.length ? [`• ${paint('warning', `Rendered without ${blocked.length} file${blocked.length === 1 ? '' : 's'} that symbolic links lead to outside the site (${listShort(blocked)}), which may change how pages look—\`--follow-links\` follows them`, color)}`] : [],
-    result.equivalence ? `• Equivalence-checked with ${result.equivalence}` : '• Not equivalence-checked',
+    // Only in development
+    ...result.equivalence ? [`• Equivalence-checked with ${result.equivalence}`] : [],
     '',
     table([
       ['Option', 'Status', 'Saves alone', 'Contributes', 'Variant'],

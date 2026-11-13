@@ -13,7 +13,7 @@ export const CONFIG_FILE = 'html-minifier.config.json';
 const LOCKFILES = [['pnpm-lock.yaml', 'pnpm'], ['yarn.lock', 'yarn'], ['bun.lock', 'bun'], ['bun.lockb', 'bun'], ['package-lock.json', 'npm']];
 
 /** @type {Record<PackageManager, string[]>} */
-export const INSTALL_ARGS = {
+const INSTALL_ARGS = {
   npm: ['install', '--save-dev'],
   pnpm: ['add', '--save-dev'],
   yarn: ['add', '--dev'],
