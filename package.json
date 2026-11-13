@@ -39,7 +39,8 @@
     "minification",
     "minifier",
     "optimization",
-    "setup"
+    "setup",
+    "wizard"
   ],
   "license": "MIT",
   "name": "html-minifier-setup",
