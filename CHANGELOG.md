@@ -4,6 +4,18 @@ All notable changes to HTML Minifier Setup (HMS) are documented in this file, wh
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.1] - 2026-11-13
+
+### Fixed
+
+* Read starting configurations as HTML Minifier does: with a byte order mark, and, without a `.json` extension, as JSON or else as module
+* Carried input handling options (e.g., `caseSensitive`) of a preset a starting configuration names
+* Named options presets include in a form that doesn’t fit (e.g., full whitespace collapsing where only `preserveLineBreaks` fits)
+
+### Added
+
+* Added an introduction where the CLI starts on a terminal
+
 ## [0.1.0] - 2026-11-13
 
 ### Added

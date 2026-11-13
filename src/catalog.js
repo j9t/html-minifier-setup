@@ -4,6 +4,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { presets as PRESETS } from 'html-minifier';
 
 /**
  * @typedef {object} Candidate
@@ -143,6 +144,11 @@ export function splitConfig(config) {
   /** @type {string[]} */
   const ignored = [];
   const names = new Set(CANDIDATES.map((candidate) => candidate.name));
+  // A preset can set how input is read, too (e.g., `caseSensitive`)
+  const preset = typeof config.preset === 'string' ? /** @type {Record<string, Record<string, unknown>>} */ (PRESETS)[config.preset.toLowerCase()] : undefined;
+  for (const name of CARRIED) {
+    if (preset && name in preset) base[name] = preset[name];
+  }
   for (const [name, value] of Object.entries(config)) {
     if (CARRIED.includes(name)) {
       base[name] = value;

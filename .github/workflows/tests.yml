@@ -19,7 +19,8 @@ jobs:
     strategy:
       matrix:
         platform: [ubuntu-latest]
-        node: ["lts/*", "current"]
+        # “22” is the oldest supported Node.js version (package.json `engines`)
+        node: ["22", "lts/*", "current"]
         include:
           # Windows: One LTS job is enough
           - platform: windows-latest

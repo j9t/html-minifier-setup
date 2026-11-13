@@ -116,6 +116,15 @@ describe('`customize`', () => {
     assert.ok(result.presets[0]?.rejected.includes('removeComments'));
   });
 
+  test('Names options presets include in a form that was rejected, where a gentler one fits', async () => {
+    const renderer = fakeRenderer((html) => /red,<\/span>[ \t]*\n\s*<span>violets/.test(html));
+    const result = await customize(pagePoem, { renderer, metric: 'raw' });
+    assert.strictEqual(evaluation(result, 'collapseWhitespace').variant, 'preserveLineBreaks');
+    const [conservative, comprehensive] = result.presets;
+    assert.ok(!conservative?.rejected.includes('collapseWhitespace'));
+    assert.ok(comprehensive?.rejected.includes('collapseWhitespace'));
+  });
+
   test('Compares with presets unrendered without a renderer, or not at all if asked', async () => {
     const result = await customize(pageHome);
     assert.strictEqual(result.presets[0]?.failing, null);

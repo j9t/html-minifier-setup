@@ -460,6 +460,7 @@ export async function customize(pagesGiven, settings = {}) {
   onProgress({ phase: 'presets', detail: presetsCompared.map(([name]) => name).join(', '), current: 0, total: presetsCompared.length });
   /** @type {PresetComparison[]} */
   const comparisons = await Promise.all(presetsCompared.map(async ([name, preset]) => {
+    /** @type {Record<string, unknown>} */
     const optionsPreset = { ...base, ...preset };
     /** @type {{page: import('./pages.js').Page, html: string}[]} */
     const minified = [];
@@ -484,7 +485,11 @@ export async function customize(pagesGiven, settings = {}) {
       failing: verdicts ? verdicts.filter((verdict) => !verdict.equal && !verdict.inconclusive).length : null,
       inconclusive: verdicts ? verdicts.filter((verdict) => verdict.inconclusive).length : null,
       errors,
-      rejected: Object.keys(preset).filter((key) => /** @type {Record<string, unknown>} */ (preset)[key] && evaluations.get(key)?.status === 'rejected')
+      rejected: Object.keys(preset).filter((key) => {
+        const evaluation = evaluations.get(key);
+        // Or in use only as a gentler variant than the preset’s
+        return optionsPreset[key] && (evaluation?.status === 'rejected' || (evaluation?.variant && Object.keys(evaluation.options).some((option) => !optionsPreset[option])));
+      })
     };
   }));
   const [baseline, final] = await measuring;

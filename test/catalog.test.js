@@ -56,4 +56,10 @@ describe('`splitConfig`', () => {
     assert.deepStrictEqual(preserved, { cacheCSS: 10, fileExt: 'html,php' });
     assert.deepStrictEqual(ignored.sort(), ['$schema', 'collapseWhitespace', 'preset']);
   });
+
+  test('Carries input handling options of a preset, unless the configuration sets them', () => {
+    assert.deepStrictEqual(splitConfig({ preset: 'conservative' }).base, { caseSensitive: true });
+    assert.deepStrictEqual(splitConfig({ preset: 'Conservative', caseSensitive: false }).base, { caseSensitive: false });
+    assert.deepStrictEqual(splitConfig({ preset: 'unknown' }).base, {});
+  });
 });

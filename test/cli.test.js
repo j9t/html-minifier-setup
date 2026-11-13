@@ -99,6 +99,22 @@ describe('CLI', () => {
     });
   });
 
+  test('Reads configurations as HTML Minifier does, with a byte order mark or without an extension', async () => {
+    await inDir({ 'bom.json': `\uFEFF${JSON.stringify({ caseSensitive: true })}`, 'start': JSON.stringify({ continueOnParseError: true }), 'index.html': PAGE }, async (dir) => {
+      for (const [file, name] of [['bom.json', 'caseSensitive'], ['start', 'continueOnParseError']]) {
+        const { code, stdout, stderr } = await run([...FLAGS, '--json', '-c', file], dir);
+        assert.strictEqual(code, 0, stderr);
+        assert.strictEqual(JSON.parse(stdout).options[name], true);
+      }
+    });
+  });
+
+  test('Doesn’t introduce itself where STDERR isn’t a terminal', async () => {
+    const { code, stderr } = await run([path.join(dirSite, 'index.html'), ...FLAGS]);
+    assert.strictEqual(code, 0, stderr);
+    assert.doesNotMatch(stderr, /This is HTML Minifier Setup/);
+  });
+
   test('Prefers a given configuration over html-minifier.config.json', async () => {
     await inDir({ 'html-minifier.config.json': JSON.stringify({ caseSensitive: true }), 'start.json': JSON.stringify({ continueOnParseError: true }), 'index.html': PAGE }, async (dir) => {
       const { code, stdout, stderr } = await run([...FLAGS, '--json', '-c', 'start.json'], dir);
