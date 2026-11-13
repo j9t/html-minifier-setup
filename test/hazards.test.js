@@ -63,6 +63,31 @@ describe('`analyzePage`', () => {
     const context = await analyze('<style>@charset "utf-8"; pre, textarea { white-space: pre } /* Verse */ .poem { white-space: pre-line }</style><p style="white-space: break-spaces">', {});
     assert.deepStrictEqual(context.whitespaceRules.map((rule) => rule.text), ['.poem { white-space: pre-line }', '[style] { white-space: break-spaces }']);
   });
+
+  test('Collects rules that keep whitespace by any value that does', async () => {
+    const context = await analyze('<style>.a { white-space: nowrap preserve !important } .b { WHITE-SPACE-COLLAPSE: preserve-breaks } .c { white-space: nowrap } .d { white-space: var(--w) }</style>');
+    assert.deepStrictEqual(context.whitespaceRules.map((rule) => rule.text), ['.a { white-space: nowrap preserve }', '.b { white-space-collapse: preserve-breaks }']);
+  });
+
+  test('Collects rules that keep whitespace from nested rules and conditional group rules', async () => {
+    const context = await analyze('<style>@media print { .a { white-space: pre } } @layer x { @supports (display: grid) { .b { white-space: pre } } } .c { color: red; & .d { white-space: pre } .e { white-space: pre } white-space: pre-line } @keyframes f { from { white-space: pre } }</style>');
+    assert.deepStrictEqual(context.whitespaceRules.map((rule) => rule.text), ['.a { white-space: pre }', '.b { white-space: pre }', '& .d { white-space: pre }', '.e { white-space: pre }', '.c { white-space: pre-line }']);
+  });
+
+  test('Ignores imports that follow other rules, as browsers do', async () => {
+    const context = await analyze('<style>.a {} @import "b.css";</style>', { 'b.css': '[data-b] {}' });
+    assert.deepStrictEqual([...context.attributeRefs], []);
+  });
+
+  test('Collects attribute references from nested rules and selector arguments', async () => {
+    const context = await analyze('<style>.a { &[data-x] {} } :is([data-y]) {} p:has(> [DATA-Z]) {}</style>');
+    assert.deepStrictEqual([...context.attributeRefs].sort(), ['data-x', 'data-y', 'data-z']);
+  });
+
+  test('Leaves inline styles out of attribute references', async () => {
+    const context = await analyze('<p style="color: red">');
+    assert.deepStrictEqual([...context.attributeRefs], []);
+  });
 });
 
 describe('`findHazards`', () => {
@@ -99,8 +124,8 @@ describe('`findHazards`', () => {
   });
 
   test('Ends escapes only at CSS whitespace', async () => {
-    const context = await analyze('<style>#\\61 z { white-space: pre-line }</style>');
-    assert.strictEqual(levels(findHazards('collapseWhitespace', context, '<p id="a z">a\nb</p>', '<p id="a z">a b</p>'), 'check').length, 1);
+    const context = await analyze('<style>#\\61\u00A0z { white-space: pre-line }</style>');
+    assert.strictEqual(levels(findHazards('collapseWhitespace', context, '<p id="a\u00A0z">a\nb</p>', '<p id="a\u00A0z">a b</p>'), 'check').length, 1);
   });
 
   test('Matches whitespace rules by attribute selectors whatever their values hold', async () => {
@@ -112,6 +137,22 @@ describe('`findHazards`', () => {
       const context = await analyze(`<style>${selector} { white-space: pre-line }</style>`);
       assert.deepStrictEqual(findHazards('collapseWhitespace', context, '<p class="b">a\nb</p>', '<p class="b">a b</p>'), [], selector);
     }
+  });
+
+  test('Matches nested whitespace rules by their parent rules', async () => {
+    const context = await analyze('<style>.poem { &:hover { white-space: pre-line } }</style>');
+    assert.strictEqual(levels(findHazards('collapseWhitespace', context, '<p class="poem">a\nb</p>', '<p class="poem">a b</p>'), 'check').length, 1);
+    assert.deepStrictEqual(findHazards('collapseWhitespace', context, '<p class="prose">a\nb</p>', '<p class="prose">a b</p>'), []);
+  });
+
+  test('Matches whitespace rules for each element on its own', async () => {
+    const context = await analyze('<style>.poem { &.verse { white-space: pre-line } }</style>');
+    assert.deepStrictEqual(findHazards('collapseWhitespace', context, '<p class="poem">a\nb</p><p class="verse">c</p>', '<p class="poem">a b</p><p class="verse">c</p>'), []);
+  });
+
+  test('Finds no whitespace hazard for invalid rules, which browsers drop', async () => {
+    const context = await analyze('<style>p, .poem:nth-child(x) { white-space: pre-line }</style>');
+    assert.deepStrictEqual(findHazards('collapseWhitespace', context, '<p class="poem">a\nb</p>', '<p class="poem">a b</p>'), []);
   });
 
   test('Finds no whitespace hazard where no element matches the rule', async () => {
@@ -157,6 +198,12 @@ describe('`findHazards`', () => {
     assert.match(hazards[0]?.message ?? '', /is-open/);
   });
 
+  test('Flags style rules removed for escaped and nested classes that scripts name', async () => {
+    const context = await analyze('<script>el.classList.add("md:open", "is-active")</script>');
+    const hazards = findHazards('removeUnusedCSS', context, '<style>.md\\:open{color:red}.menu{&.is-active{color:red}}</style>', '<style></style>');
+    assert.match(levels(hazards, 'risk')[0]?.message ?? '', /`\.md:open`, `\.is-active`/);
+  });
+
   test('Notes removed style rules where scripts can’t be read', async () => {
     const context = await analyze('<script src="https://cdn.example/a.js"></script>');
     assert.strictEqual(levels(findHazards('removeUnusedCSS', context, '<style>.a{color:red}</style>', '<style></style>'), 'note').length, 1);
@@ -172,6 +219,11 @@ describe('`findHazards`', () => {
   test('Flags reordered classes where CSS matches class prefixes', async () => {
     const context = await analyze('<style>[class^="icon-"] {}</style>');
     assert.strictEqual(levels(findHazards('sortClassNames', context, '<i class="icon-a b">', '<i class="b icon-a">'), 'risk').length, 1);
+  });
+
+  test('Ignores changed inline styles where no style sheet selects on them', async () => {
+    const context = await analyze('<p style=" color: red ">');
+    assert.deepStrictEqual(findHazards('collapseAttributeWhitespace', context, '<p style=" color: red ">', '<p style="color: red">'), []);
   });
 
   test('Ignores attribute changes for options that keep the DOM the same', async () => {

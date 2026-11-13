@@ -8,6 +8,7 @@
   "dependencies": {
     "commander": "^15.1.0",
     "html-minifier": "^5.1.0",
+    "lightningcss": "^1.33.0",
     "parse5": "^8.1.1",
     "playwright": "^1.65.0"
   },
@@ -57,5 +58,5 @@
     "test:watch": "node --test --watch \"test/**/*.test.js\""
   },
   "type": "module",
-  "version": "0.2.1"
+  "version": "0.3.0"
 }
