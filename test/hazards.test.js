@@ -71,6 +71,11 @@ describe('`findHazards`', () => {
     assert.strictEqual(levels(findHazards('collapseWhitespace', context, '<div class="poem">a\nb</div>', '<div class="poem">a b</div>'), 'check').length, 1);
   });
 
+  test('Matches whitespace rules by the selector outside nested parentheses', async () => {
+    const context = await analyze('<style>div:has(> .poem:not(.x)) { white-space: pre-line }</style>');
+    assert.strictEqual(levels(findHazards('collapseWhitespace', context, '<div><p>a\nb</p></div>', '<div><p>a b</p></div>'), 'check').length, 1);
+  });
+
   test('Finds no whitespace hazard where no element matches the rule', async () => {
     const context = await analyze('<style>.poem { white-space: pre-line }</style>');
     assert.deepStrictEqual(findHazards('collapseWhitespace', context, '<p class="prose">a\nb</p>', '<p class="prose">a b</p>'), []);
