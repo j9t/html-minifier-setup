@@ -103,16 +103,31 @@ function removed(before, after) {
 }
 
 /**
- * A selector without what parentheses hold, however nested, in linear time
+ * A selector without what parentheses hold, however nested, in linear time;
+ * parentheses in quotes or escaped don’t count
  * @param {string} selector
  */
 function withoutArguments(selector) {
   let depth = 0;
   let kept = '';
-  for (const char of selector) {
-    if (char === '(') depth++;
-    else if (char === ')' && depth) depth--;
-    else if (!depth) kept += char;
+  /** @type {string | null} */
+  let quote = null;
+  for (let index = 0; index < selector.length; index++) {
+    let char = selector[index] ?? '';
+    if (char === '\\') {
+      char += selector[++index] ?? '';
+    } else if (quote) {
+      if (char === quote) quote = null;
+    } else if (char === '"' || char === '\'') {
+      quote = char;
+    } else if (char === '(') {
+      depth++;
+      continue;
+    } else if (char === ')' && depth) {
+      depth--;
+      continue;
+    }
+    if (!depth) kept += char;
   }
   return kept;
 }
