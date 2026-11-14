@@ -40,7 +40,7 @@ npx html-minifier --input-dir ./dist --output-dir ./dist
 | `-s, --sample <count>` | Pages to evaluate at most (default: 20) |
 | `--file-ext <list>` | File extensions to read in directories, `*` for all files (default: `html,htm,shtml,shtm`, as HTML Minifier, or the configuration’s `fileExt`) |
 | `--ignore-dir <list>` | Directory names to skip (default: `node_modules`, or the configuration’s `ignoreDir`) |
-| `--keep <list>` | Options to recommend regardless of risks and gains |
+| `--keep <list>` | Options to recommend regardless of risks and gains (pages they make look different aren’t used to render-check other options) |
 | `--skip <list>` | Options not to evaluate |
 | `--no-render` | Skip the render check, not recommending options that need it |
 | `--no-presets` | Skip comparing with HTML Minifier’s presets |
@@ -66,6 +66,8 @@ try {
   await renderer?.close();
 }
 ```
+
+`toPresetConfig(result)` gives the configuration as one of HTML Minifier’s presets with changes (where that at least halves the options to list), or else `null`.
 
 ## How it works
 
@@ -98,6 +100,7 @@ The checks can show that options change pages, not that they never will:
 * The render check sees pages as they load, not after interaction (e.g., a menu a script opens, using classes `removeUnusedCSS` removed).
 * Scripts from other origins can’t be read, and classes or attributes a script builds at runtime (e.g., `'is-' + state`) can’t be found.
 * Rendering must match pixel for pixel, so lossy changes (e.g., SVG coordinates rounded by `minifySVG`) count as differences.
+* Pages that options kept with `--keep` make look different can’t show whether other options do, too.
 * A page sample may miss templates the rest of the site uses—for sites with many different templates, raise `--sample`.
 * Options that have no effect can’t be judged: On pages that are minified already, most options are left out, as there’s nothing left for them to do. Run HTML Minifier Setup on pages before minification instead.
 
