@@ -4,11 +4,20 @@ All notable changes to HTML Minifier Setup (HMS) are documented in this file, wh
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.3.0] - 2026-11-14
 
 ### Fixed
 
-* Judged which elements whitespace rules match in linear time, so that crafted selectors (e.g., many unclosed `:x(`) can’t stall the static checks, and by the selector outside nested parentheses
+* Kept crafted style sheets (e.g., selectors with many unclosed `:x(` or deeply nested rules) from stalling the static checks
+* Matched whitespace rules by the selector outside nested parentheses, by escaped class names and IDs (e.g., Tailwind’s `.md\:whitespace-pre-line`), and by attribute selectors whatever their values hold (e.g., `a[href$=".txt"]`), which had kept options that collapse whitespace from being flagged
+* Flagged whitespace that CSS keeps with values not led by the keyword that keeps it (e.g., `white-space: nowrap preserve`)
+* Flagged `removeUnusedCSS` where it removes rules for escaped classes that scripts name, also in selectors (e.g., `.md\:open`)
+* Kept no-break spaces in class names from separating classes, which only ASCII whitespace does
+* Stopped flagging changed inline styles (e.g., by `collapseAttributeWhitespace`) as attributes that style sheets select on
+
+### Changed
+
+* Switched to reading style sheets with [Lightning CSS](https://lightningcss.dev/), which HTML Minifier uses already, rather than with regular expressions: The static checks now follow nested rules (e.g., `&:hover`) and scopes (`@scope`), and take style sheets as browsers do, dropping invalid rules and imports that follow other rules
 
 ## [0.2.0] - 2026-11-13
 

@@ -1,6 +1,7 @@
 // What a page’s own scripts and style sheets rely on that an option may change—found by comparing
 // output with and without the option, and matching what changed against what the page references
 
+import { transform, transformStyleAttribute } from 'lightningcss';
 import { parse } from 'parse5';
 
 /**
@@ -15,9 +16,18 @@ import { parse } from 'parse5';
  * @prop {string} scriptText
  * @prop {string[]} scriptsUnread Script URLs that couldn’t be read
  * @prop {Set<string>} attributeRefs Attribute names that style sheets select on or scripts query
- * @prop {{selector: string, text: string}[]} whitespaceRules Rules that keep whitespace, outside `pre` and `textarea`
+ * @prop {(CssRule & {text: string})[]} whitespaceRules Rules that keep whitespace, outside `pre` and `textarea`
  */
 
+/**
+ * A style rule, with its selector as written and, if nested, its parent
+ * @typedef {{selectors: Selector[], parent: CssRule | null, declarations: Declaration[], selector: string}} CssRule
+ */
+
+/** @typedef {import('lightningcss').Declaration} Declaration */
+/** @typedef {import('lightningcss').Rule} Rule */
+/** @typedef {import('lightningcss').Selector} Selector */
+/** @typedef {import('lightningcss').SelectorComponent} SelectorComponent */
 /** @typedef {import('parse5').DefaultTreeAdapterMap['node']} Node */
 /** @typedef {import('parse5').DefaultTreeAdapterMap['element']} Element */
 
@@ -27,15 +37,17 @@ const MAX_PER_KIND = 3;
 const MODES = { 'quirks': 'quirks mode', 'limited-quirks': 'almost standards mode', 'no-quirks': 'standards mode' };
 const RE_STRING_LITERAL = /(["'`])((?:\\.|(?!\1)[^\\\n])*)\1/g;
 const RE_WORD = /[\w-]+/g;
+// What separates classes in HTML, unlike JavaScript’s `\s`, which includes no-break spaces
+const RE_WHITESPACE_ASCII = /[ \t\n\f\r]+/;
+const RE_ESCAPE_JS = /\\(?:u\{([\da-f]+)\}|u([\da-f]{4})|x([\da-f]{2})|([\s\S]))/gi;
+/** @type {Record<string, string>} */
+const ESCAPES_JS = { 'b': '\b', 'f': '\f', 'n': '\n', 'r': '\r', 't': '\t', 'v': '\v', '0': '\0' };
 const RE_ATTRIBUTE_SELECTOR = /\[\s*([\w-]+)\s*(?=[~|^$*]?=|\])/g;
-const RE_CSS_COMMENT = /\/\*[\s\S]*?\*\//g;
-// At-rules without a block, like `@import`, taking quoted strings and escapes whole
-const RE_CSS_STATEMENT = /@[\w-]+(?:\\.|"(?:\\.|[^"\\\n])*"|'(?:\\.|[^'\\\n])*'|[^{};"'\\])*;/g;
-const RE_IMPORT = /@import\s+(?:url\(\s*)?(["']?)([^"')\s;]+)\1/gi;
 const RE_ATTRIBUTE_CALL = /\b(?:get|has|remove|set|toggle)Attribute(?:NS)?\(\s*(?:[^,()]*,\s*)?["'`]([\w-]+)/g;
-const RE_WHITESPACE_KEPT = /white-space(?:-collapse)?\s*:\s*(?:pre-wrap|pre-line|pre|break-spaces|preserve-breaks|preserve-spaces|preserve)(?![\w-])/i;
 const RE_READS_COMMENTS = /SHOW_COMMENT|COMMENT_NODE|nodeType\s*[!=]==?\s*8\b|\.childNodes\b[^;]*\.data\b/;
 const RE_SCRIPT_JS = /^(?:|module|(?:application|text)\/(?:x-)?(?:java|ecma)script|text\/javascript1\.[0-5]|text\/jscript|text\/livescript)$/i;
+const KEYWORDS_WHITESPACE_KEPT = new Set(['break-spaces', 'pre', 'pre-line', 'pre-wrap', 'preserve', 'preserve-breaks', 'preserve-spaces']);
+const PROPERTIES_WHITESPACE = new Set(['white-space', 'white-space-collapse']);
 const SELECTORS_PREFORMATTED = new Set(['pre', 'textarea']);
 
 // Conditional comments only matter to Internet Explorer 9 and older
@@ -103,68 +115,148 @@ function removed(before, after) {
 }
 
 /**
- * A selector without what parentheses hold, however nested, in linear time
- * @param {string} selector
+ * Text of a JavaScript string literal, with escapes decoded
+ * @param {string} text
  */
-function withoutArguments(selector) {
-  let depth = 0;
-  let kept = '';
-  for (const char of selector) {
-    if (char === '(') depth++;
-    else if (char === ')' && depth) depth--;
-    else if (!depth) kept += char;
+const unescapeJs = (text) => text.replace(RE_ESCAPE_JS, (_, braced, unicode, hex, char) => {
+  if (char !== undefined) return ESCAPES_JS[char] ?? char;
+  const code = parseInt(braced ?? unicode ?? hex, 16);
+  return code <= 0x10FFFF ? String.fromCodePoint(code) : '\uFFFD';
+});
+
+/**
+ * Components of selectors, including those in arguments like `:is()`, however deeply nested
+ * @param {unknown} value
+ */
+function componentsOf(value) {
+  /** @type {{type?: unknown, name?: unknown}[]} */
+  const components = [];
+  for (const stack = [value]; stack.length;) {
+    const item = stack.pop();
+    if (!item || typeof item !== 'object') continue;
+    if (!Array.isArray(item) && 'type' in item) components.push(item);
+    stack.push(...Object.values(item).reverse());
   }
-  return kept;
+  return components;
 }
 
 /**
- * Whether any element may match a selector, judged by the tag, classes, IDs, and attributes
- * of the last compound of each selector in the list—erring toward a match
- * @param {string} selector
+ * Names of the classes (`.name`), IDs (`#name`), and attributes (`[name]`) rules select on
+ * @param {CssRule[]} rules
+ */
+const namesOf = (rules) => rules.flatMap((rule) => componentsOf(rule.selectors).flatMap(({ type, name }) => {
+  const prefix = { class: '.', id: '#', attribute: '[' }[String(type)];
+  return prefix && typeof name === 'string' ? [prefix + name] : [];
+}));
+
+/**
+ * A declaration that keeps whitespace, as text
+ * @param {Declaration} declaration
+ */
+function keepingWhitespace(declaration) {
+  const [name, values] = declaration.property === 'custom' ? [declaration.value.name, declaration.value.value]
+    : declaration.property === 'unparsed' ? [declaration.value.propertyId.property, declaration.value.value]
+    : [declaration.property, [declaration.value]];
+  if (!PROPERTIES_WHITESPACE.has(name.toLowerCase())) return;
+  const keywords = /** @type {unknown[]} */ (values).flatMap((value) => {
+    if (typeof value === 'string') return value.split(' ');
+    const token = /** @type {{type?: unknown, value?: {type?: unknown, value?: unknown}}} */ (value);
+    return token.type === 'token' && token.value?.type === 'ident' ? [String(token.value.value)] : [];
+  }).map((keyword) => keyword.toLowerCase());
+  return keywords.some((keyword) => KEYWORDS_WHITESPACE_KEPT.has(keyword)) ? `${name.toLowerCase()}: ${keywords.join(' ')}` : undefined;
+}
+
+/**
+ * Style rules of a style sheet, including nested ones, and what it imports; as in browsers,
+ * invalid rules are dropped
+ * @param {string} css
+ */
+function readStyles(css) {
+  /** @type {CssRule[]} */
+  const rules = [];
+  /** @type {string[]} */
+  const imports = [];
+  const lineStarts = [0, ...[...css.matchAll(/\r\n|[\n\r\f]/g)].map((match) => match.index + match[0].length)];
+  /** @param {{line: number, column: number}} loc */
+  const selectorAt = ({ line, column }) => {
+    const offset = (lineStarts[line] ?? 0) + column - 1;
+    const end = css.indexOf('{', offset);
+    return css.slice(offset, end < 0 ? undefined : end).trim();
+  };
+  /**
+   * @param {Rule[]} children
+   * @param {CssRule | null} parent
+   */
+  const collect = (children, parent) => {
+    for (const child of children) {
+      if (child.type === 'import') {
+        imports.push(child.value.url);
+      } else if (child.type === 'style') {
+        const { declarations = [], importantDeclarations = [] } = child.value.declarations ?? {};
+        const rule = { selectors: child.value.selectors, parent, declarations: [...declarations, ...importantDeclarations], selector: selectorAt(child.value.loc) };
+        rules.push(rule);
+        collect(child.value.rules ?? [], rule);
+      } else if (child.type === 'scope') {
+        // `&` in a scope stands for its root, which, without a selector, may be any element
+        const { scopeStart, scopeEnd, rules: scoped, loc } = child.value;
+        const scope = { selectors: scopeStart ?? [[]], parent, declarations: [], selector: selectorAt(loc) };
+        rules.push(scope);
+        if (scopeEnd) rules.push({ ...scope, selectors: scopeEnd, parent: scope });
+        collect(scoped, scope);
+      } else if (child.type === 'nested-declarations' && parent) {
+        const { declarations = [], importantDeclarations = [] } = child.value.declarations ?? {};
+        rules.push({ ...parent, selectors: [[{ type: 'nesting' }]], parent, declarations: [...declarations, ...importantDeclarations] });
+      } else if ('value' in child && child.value && 'rules' in child.value && Array.isArray(child.value.rules)) {
+        collect(/** @type {Rule[]} */ (child.value.rules), parent);
+      }
+    }
+  };
+  try {
+    transform({ filename: 'style.css', code: Buffer.from(css), errorRecovery: true, visitor: { StyleSheet: (sheet) => collect(sheet.rules, null) } });
+  } catch {
+    // Errors aren’t recovered from in every case, and a style sheet that can’t be read has no rules
+  }
+  return { rules, imports };
+}
+
+/**
+ * Rules that some element may match, judged by the tag, classes, IDs, and attributes of the last
+ * compound of each selector—erring toward a match
+ * @template {CssRule} T
+ * @param {T[]} rules
  * @param {Element[]} elements
  */
-function mayMatch(selector, elements) {
-  return withoutArguments(selector).split(',').some((part) => {
-    const compound = (part.trim().replace(/::?[\w-]+/g, '').split(/[\s>+~]+/).pop() ?? '').trim();
-    const tag = compound.match(/^[a-z][\w-]*/i)?.[0].toLowerCase();
-    const classes = [...compound.matchAll(/\.([\w-]+)/g)].map((match) => match[1] ?? '');
-    const ids = [...compound.matchAll(/#([\w-]+)/g)].map((match) => match[1] ?? '');
-    const attributes = [...compound.matchAll(/\[\s*([\w-]+)/g)].map((match) => (match[1] ?? '').toLowerCase());
-    return elements.some((element) => {
-      const own = (attr(element, 'class') ?? '').split(/\s+/);
-      return (!tag || element.tagName === tag) &&
-        classes.every((name) => own.includes(name)) &&
-        ids.every((id) => attr(element, 'id') === id) &&
-        attributes.every((name) => element.attrs.some((item) => item.name === name));
-    });
-  });
+function rulesMatching(rules, elements) {
+  /** @type {Map<CssRule, Set<Element>>} */
+  const matched = new Map();
+  /**
+   * @param {CssRule} rule
+   * @returns {Set<Element>}
+   */
+  const matching = (rule) => {
+    const known = matched.get(rule);
+    if (known) return known;
+    const compounds = rule.selectors.map((selector) => selector.slice(selector.findLastIndex((component) => component.type === 'combinator') + 1));
+    /**
+     * @param {SelectorComponent} component
+     * @param {Element} element
+     */
+    const fits = (component, element) => {
+      switch (component.type) {
+        case 'type': return element.tagName.toLowerCase() === component.name.toLowerCase();
+        case 'class': return (attr(element, 'class') ?? '').split(RE_WHITESPACE_ASCII).includes(component.name);
+        case 'id': return attr(element, 'id') === component.name;
+        case 'attribute': return element.attrs.some((item) => item.name === component.name.toLowerCase());
+        case 'nesting': return !rule.parent || matching(rule.parent).has(element);
+        default: return true;
+      }
+    };
+    const found = new Set(elements.filter((element) => compounds.some((compound) => compound.every((component) => fits(component, element)))));
+    matched.set(rule, found);
+    return found;
+  };
+  return rules.filter((rule) => matching(rule).size);
 }
-
-/** @param {string} css */
-function whitespaceRulesOf(css) {
-  /** @type {{selector: string, text: string}[]} */
-  const rules = [];
-  // Without comments and statements like `@import`, which would otherwise lead the next selector
-  for (const match of css.replace(RE_CSS_COMMENT, '').replace(RE_CSS_STATEMENT, '').matchAll(/([^{}]*)\{([^{}]*)\}/g)) {
-    const selector = (match[1] ?? '').trim();
-    const declaration = (match[2] ?? '').match(RE_WHITESPACE_KEPT)?.[0];
-    if (!declaration || selector.startsWith('@')) continue;
-    if (selector.split(',').every((part) => SELECTORS_PREFORMATTED.has(part.trim().toLowerCase()))) continue;
-    rules.push({ selector, text: `${clip(selector, 40)} { ${declaration} }` });
-  }
-  return rules;
-}
-
-/** @param {string} css */
-const selectorTokens = (css) => {
-  let selectors = css.replace(RE_CSS_COMMENT, '');
-  // Strips declaration blocks innermost first, so that nested at-rules leave their selectors
-  for (let previous = ''; previous !== selectors;) {
-    previous = selectors;
-    selectors = selectors.replace(/\{[^{}]*\}/g, ',');
-  }
-  return [...selectors.matchAll(/[.#](-?[_a-zA-Z\u00A0-\uFFFF][\w\u00A0-\uFFFF-]*)/g)].map((match) => `${match[0][0]}${match[1]}`);
-};
 
 /**
  * Collects what a page’s scripts and style sheets reference
@@ -176,8 +268,10 @@ export async function analyzePage(page) {
   const scripts = [];
   /** @type {string[]} */
   const scriptsUnread = [];
-  /** @type {string[]} */
-  const styles = [];
+  /** @type {CssRule[]} */
+  const rules = [];
+  /** @type {Set<string>} */
+  const attributeRefs = new Set();
   /** @type {Promise<void>[]} */
   const pending = [];
   /** @type {Set<string>} */
@@ -189,8 +283,10 @@ export async function analyzePage(page) {
    * @param {string | null} base Reference of the style sheet, if not in the page
    */
   const addStyles = (css, base) => {
-    styles.push(css);
-    for (const [, , ref = ''] of css.replace(RE_CSS_COMMENT, '').matchAll(RE_IMPORT)) {
+    const styles = readStyles(css);
+    rules.push(...styles.rules);
+    for (const name of namesOf(styles.rules)) if (name.startsWith('[')) attributeRefs.add(name.slice(1).toLowerCase());
+    for (const ref of styles.imports) {
       let target;
       try {
         target = base === null ? ref : page.resolve(ref, base);
@@ -206,7 +302,16 @@ export async function analyzePage(page) {
   for (const element of elementsOf(page.html)) {
     for (const { name, value } of element.attrs) {
       if (/^on[a-z]{3,}$/.test(name)) scripts.push(value);
-      if (name === 'style') styles.push(`[style]{${value}}`);
+      if (name === 'style') {
+        /** @type {Declaration[]} */
+        const declarations = [];
+        try {
+          transformStyleAttribute({ code: Buffer.from(value), errorRecovery: true, visitor: { Declaration: (declaration) => { declarations.push(declaration); } } });
+        } catch {
+          // As with style sheets
+        }
+        rules.push({ selectors: [[{ type: 'attribute', name: 'style', namespace: null, operation: null }]], parent: null, declarations, selector: '[style]' });
+      }
     }
     if (element.tagName === 'script' && RE_SCRIPT_JS.test((attr(element, 'type') ?? '').trim())) {
       const src = attr(element, 'src');
@@ -226,20 +331,29 @@ export async function analyzePage(page) {
   while (pending.length) await Promise.all(pending.splice(0));
 
   const scriptText = scripts.join('\n;\n');
-  const css = styles.join('\n');
   /** @type {Set<string>} */
   const scriptStrings = new Set();
-  /** @type {Set<string>} */
-  const attributeRefs = new Set();
   for (const literal of scriptText.matchAll(RE_STRING_LITERAL)) {
     const content = literal[2] ?? '';
-    for (const word of content.match(RE_WORD) ?? []) scriptStrings.add(word);
+    // Words, and what whitespace separates, for names like `md:open`
+    for (const word of [...content.match(RE_WORD) ?? [], ...content.split(RE_WHITESPACE_ASCII)]) if (word) scriptStrings.add(word);
+    // Names in selectors, as in `querySelector('.md\\:open')`, decoded as in style sheets
+    if (content.includes('\\')) {
+      for (const name of namesOf(readStyles(`${unescapeJs(content)}{}`).rules)) if (!name.startsWith('[')) scriptStrings.add(name.slice(1));
+    }
     for (const match of content.matchAll(RE_ATTRIBUTE_SELECTOR)) attributeRefs.add((match[1] ?? '').toLowerCase());
   }
   for (const match of scriptText.matchAll(RE_ATTRIBUTE_CALL)) attributeRefs.add((match[1] ?? '').toLowerCase());
-  for (const match of css.matchAll(RE_ATTRIBUTE_SELECTOR)) attributeRefs.add((match[1] ?? '').toLowerCase());
 
-  return { scriptStrings, scriptText, scriptsUnread: scriptsUnread.sort(), attributeRefs, whitespaceRules: whitespaceRulesOf(css) };
+  /** @type {(CssRule & {text: string})[]} */
+  const whitespaceRules = [];
+  for (const rule of rules) {
+    const kept = rule.declarations.map(keepingWhitespace).find(Boolean);
+    if (!kept || rule.selectors.every(([component, ...rest]) => !rest.length && component?.type === 'type' && SELECTORS_PREFORMATTED.has(component.name.toLowerCase()))) continue;
+    whitespaceRules.push({ ...rule, text: `${clip(rule.selector, 40)} { ${kept} }` });
+  }
+
+  return { scriptStrings, scriptText, scriptsUnread: scriptsUnread.sort(), attributeRefs, whitespaceRules };
 }
 
 /**
@@ -257,7 +371,7 @@ export function findHazards(name, context, before, after) {
 
   if (OPTIONS_WHITESPACE.has(name) && context.whitespaceRules.length) {
     const elements = elementsOf(before);
-    const applying = context.whitespaceRules.filter((rule) => mayMatch(rule.selector, elements));
+    const applying = rulesMatching(context.whitespaceRules, elements);
     if (applying.length) {
       hazards.push({ level: 'check', message: `Collapses whitespace that CSS keeps (${applying.slice(0, 2).map((rule) => rule.text).join('; ')})` });
     }
@@ -295,7 +409,7 @@ export function findHazards(name, context, before, after) {
     let count = 0;
     for (const signature of gone) {
       const [tag, id, classes] = /** @type {[string, string, string]} */ (JSON.parse(signature));
-      const named = [id, ...classes.split(/\s+/)].filter((token) => token && context.scriptStrings.has(token));
+      const named = [id, ...classes.split(RE_WHITESPACE_ASCII)].filter((token) => token && context.scriptStrings.has(token));
       if (named.length && count++ < MAX_PER_KIND) {
         const shown = `<${tag}${id ? ` id="${id}"` : ''}${classes ? ` class="${clip(classes, 30)}"` : ''}>`;
         hazards.push({ level: 'risk', message: `Removes empty ${shown}, which scripts may fill (${named.map((token) => `\`${token}\``).join(', ')})` });
@@ -308,7 +422,7 @@ export function findHazards(name, context, before, after) {
 
   if (name === 'removeUnusedCSS') {
     /** @param {string} html */
-    const tokens = (html) => [...new Set(elementsOf(html).filter((element) => element.tagName === 'style').flatMap((element) => selectorTokens(textOf(element))))];
+    const tokens = (html) => [...new Set(elementsOf(html).filter((element) => element.tagName === 'style').flatMap((element) => namesOf(readStyles(textOf(element)).rules).filter((token) => !token.startsWith('['))))];
     const gone = removed(tokens(before), tokens(after));
     const named = gone.filter((token) => context.scriptStrings.has(token.slice(1)));
     if (named.length) {
