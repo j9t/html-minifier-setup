@@ -70,7 +70,7 @@ export function createMinifierPool({ size = SIZE_DEFAULT, fileWorker = FILE_WORK
       }
       release(slot);
     });
-    // E.g., out of memory
+    // Fails as a whole, e.g., out of memory
     slot.worker.on('error', (/** @type {Error} */ err) => retire(slot, err));
     slot.worker.on('exit', (code) => retire(slot, new Error(`Minifier worker exited (code ${code})`)));
     slots.push(slot);

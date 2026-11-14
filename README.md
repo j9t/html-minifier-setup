@@ -87,9 +87,9 @@ Where full whitespace collapsing breaks a page, HTML Minifier Setup falls back t
 | Static | What scripts and style sheets of the page (including linked local or same-origin ones) rely on: comments that frameworks read (e.g., Knockout, Lit, hydration markers), empty elements scripts fill, classes scripts add after `removeUnusedCSS` removed their rules, attributes that style sheets or scripts select on, and CSS that keeps whitespace | Nothing |
 | Render | Anything that changes what the page looks like on load, or adds script errors | Chromium, Chrome, or Edge |
 
-In the report, options are **recommended**, **kept** (as asked), or not used because they **don’t fit** these pages, have **no gain** by the chosen metric, have **no effect**, or were **skipped**. With `--json`, statuses are `accepted`, `kept`, `rejected`, `no-gain`, `no-effect`, and `skipped`.
+In the report, options are _recommended_, _kept_ (as asked), or not used because they _don’t fit_ these pages, have _no gain_ by the chosen metric, have _no effect_, or were _skipped_. With `--json`, statuses are `accepted`, `kept`, `rejected`, `no-gain`, `no-effect`, and `skipped`.
 
-Options flagged by the static check as a **risk** don’t fit and aren’t recommended. Options flagged for a **check** (e.g., whitespace collapsing where CSS keeps whitespace) are recommended only if they render the same—without a render check, they’re rejected. **Notes** don’t reject.
+Options flagged by the static check as a _risk_ don’t fit and aren’t recommended. Options flagged for a _check_ (e.g., whitespace collapsing where CSS keeps whitespace) are recommended unless they render differently—without a render check, they’re rejected. Where the render check can’t tell (e.g., on pages that look different between loads or with options kept), the report says so. _Notes_ don’t reject.
 
 Options that make pages look different are mostly doing what they’re designed to do—collapsing whitespace changes spacing where a layout relies on it—so they don’t fit these pages, without HTML Minifier being at fault. Where an option that isn’t meant to change how pages look does, the report suggests it may be an HTML Minifier bug worth reporting. The configuration recommended looks the same as the original pages at every viewport checked.
 

@@ -8,7 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ### Fixed
 
-* Kept options to keep (`--keep`) that make pages look different from rejecting all other options: Pages that look different with kept options alone are no longer used to render-check the others, and the report notes them
+* Stopped options kept with `--keep` that make pages look different from getting all other options rejected: Pages that look different with the kept options alone are no longer used to render-check the others, and the report notes them
 * Kept the browser from taking 30 seconds to close in Chrome after a page stopped responding
 
 ### Added
