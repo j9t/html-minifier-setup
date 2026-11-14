@@ -388,10 +388,16 @@ export async function createRenderer({ viewports = VIEWPORTS_DEFAULT, timeout = 
         return verdict;
       },
       async close() {
-        // Contexts first, as a browser waits for pages that stopped responding (in Chrome, 30 s)
-        await Promise.all(browserOpen.contexts().map((context) => context.close()));
-        await browserOpen.close();
-        await Promise.all([...servers.values()].map(async (server) => (await server).close()));
+        try {
+          // Contexts first, as a browser waits for pages that stopped responding (in Chrome, 30 s)
+          await Promise.all(browserOpen.contexts().map((context) => context.close()));
+        } finally {
+          try {
+            await browserOpen.close();
+          } finally {
+            await Promise.all([...servers.values()].map(async (server) => (await server).close()));
+          }
+        }
       }
     }
   };

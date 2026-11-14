@@ -186,9 +186,6 @@ export async function customize(pagesGiven, settings = {}) {
   // changed them)
   /** @type {Set<string>} */
   let pagesUnchecked = new Set();
-  // Pages kept options alone make look different, on which other options can’t be render-checked
-  /** @type {Set<import('./pages.js').Page>} */
-  const pagesKeptDiffer = new Set();
 
   /** @param {string} name */
   const requirementOf = (name) => CANDIDATES.find((candidate) => candidate.name === name)?.requires;
@@ -375,16 +372,18 @@ export async function customize(pagesGiven, settings = {}) {
     let round = 0;
     for (; round < MAX_RENDER_ROUNDS; round++) {
       const { failures: failuresAll, inconclusive } = await failingPages(pages, combine(inUse()), { detail: `${inUse().length} options together${round ? ` (round ${round + 1})` : ''}` });
-      let failures = failuresAll.filter(({ page }) => !pagesKeptDiffer.has(page));
       const kept = inUse().filter((evaluation) => evaluation.status === 'kept');
-      if (failures.length && kept.length) {
-        const { failures: failuresKept } = await failingPages(failures.map(({ page }) => page), combine(kept), { detail: `${kept.length} kept options` });
+      // Pages kept options alone make look different, where other options can’t be render-checked
+      /** @type {Set<import('./pages.js').Page>} */
+      const pagesKeptDiffer = new Set();
+      if (failuresAll.length && kept.length) {
+        const { failures: failuresKept } = await failingPages(failuresAll.map(({ page }) => page), combine(kept), { detail: `${kept.length} kept options` });
         for (const { page } of failuresKept) {
           pagesKeptDiffer.add(page);
           notes.add(`${page.id}: Looks different with the kept options alone, so other options weren’t render-checked on it`);
         }
-        failures = failures.filter(({ page }) => !pagesKeptDiffer.has(page));
       }
+      const failures = failuresAll.filter(({ page }) => !pagesKeptDiffer.has(page));
       pagesUnchecked = new Set([...inconclusive, ...[...pagesKeptDiffer].map((page) => page.id)]);
       if (!failures.length) break;
       const subset = failures.map(({ page }) => page);
