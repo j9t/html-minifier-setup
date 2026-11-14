@@ -3,5 +3,5 @@ export { analyzePage, findHazards } from './hazards.js';
 export { measure } from './measure.js';
 export { createPage, loadPages } from './pages.js';
 export { createRenderer } from './render.js';
-export { formatReport, toConfig } from './report.js';
+export { formatReport, toConfig, toPresetConfig } from './report.js';
 export { customize } from './select.js';

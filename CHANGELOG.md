@@ -4,6 +4,16 @@ All notable changes to HTML Minifier Setup (HMS) are documented in this file, wh
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+* Kept options to keep (`--keep`) that make pages look different from rejecting all other options: Pages that look different with kept options alone are no longer used to render-check the others, and the report notes them
+
+### Added
+
+* Exported `toPresetConfig`, which gives the configuration as an HTML Minifier preset with changes, as the CLI offers to save it
+
 ## [0.3.0] - 2026-11-14
 
 ### Fixed

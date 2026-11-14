@@ -61,7 +61,7 @@ export async function measure(text) {
  * @param {Sizes} b
  * @returns {Sizes}
  */
-export const addSizes = (a, b) => ({ raw: a.raw + b.raw, gzip: a.gzip + b.gzip, brotli: a.brotli + b.brotli });
+const addSizes = (a, b) => ({ raw: a.raw + b.raw, gzip: a.gzip + b.gzip, brotli: a.brotli + b.brotli });
 
 /**
  * @param {Sizes[]} list

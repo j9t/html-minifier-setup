@@ -80,6 +80,18 @@ describe('`customize`', () => {
     assert.ok(!('removeUnusedCSS' in result.options));
   });
 
+  test('Doesn’t reject options for what kept options change in rendering', async () => {
+    // Only removing comments looks different
+    const renderer = fakeRenderer((html) => html.includes('<!--'));
+    const result = await customize(pageHome, { keep: ['removeComments'], renderer, presets: false });
+    assert.strictEqual(evaluation(result, 'removeComments').status, 'kept');
+    assert.strictEqual(evaluation(result, 'collapseWhitespace').status, 'accepted');
+    assert.deepStrictEqual(result.evaluations.filter((item) => item.reasons.some((reason) => reason.level === 'render')).map((item) => item.name), []);
+    assert.strictEqual(result.renderedSame, false);
+    assert.match(result.notes.join('\n'), /index\.html: Looks different with the kept options alone/);
+    assert.doesNotMatch(result.notes.join('\n'), /maximum number of rounds/);
+  });
+
   test('Doesn’t evaluate options whose requirement is rejected or skipped', async () => {
     const result = await customize(pageHome, { skip: ['minifyCSS'] });
     const unused = evaluation(result, 'removeUnusedCSS');

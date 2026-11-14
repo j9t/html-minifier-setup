@@ -107,7 +107,7 @@ export function detectPackageManager(dir) {
  * @param {PackageManager} manager
  * @returns {Promise<boolean>}
  */
-export const installPackage = (dir, manager) => new Promise((resolve) => {
+const installPackage = (dir, manager) => new Promise((resolve) => {
   const child = spawn(manager, [...INSTALL_ARGS[manager], 'html-minifier@latest'], { cwd: dir, stdio: 'inherit', shell: process.platform === 'win32' });
   child.on('error', () => resolve(false));
   child.on('close', (code) => resolve(code === 0));
