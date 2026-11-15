@@ -24,7 +24,6 @@
     "node": ">=22.13"
   },
   "exports": {
-    ".": "./src/index.js",
     "./package.json": "./package.json"
   },
   "files": [
@@ -53,10 +52,10 @@
     "benchmark": "node benchmark/benchmark.js",
     "lint": "eslint .",
     "prepare": "git config core.hooksPath .githooks || true",
-    "test": "npm run test:types && node --test \"test/**/*.test.js\"",
+    "test": "npm run test:types && node --test --test-timeout=60000 \"test/**/*.test.js\"",
     "test:types": "tsc",
-    "test:watch": "node --test --watch \"test/**/*.test.js\""
+    "test:watch": "node --test --test-timeout=60000 --watch \"test/**/*.test.js\""
   },
   "type": "module",
-  "version": "0.3.0"
+  "version": "0.4.0"
 }

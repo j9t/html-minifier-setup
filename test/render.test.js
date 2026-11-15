@@ -1,14 +1,39 @@
 import { after, before, describe, test } from 'node:test';
 import assert from 'node:assert';
+import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
+import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createPage, loadPages } from '../src/pages.js';
-import { combineOriginals, createLimit, createRenderer, playwrightCli, serve } from '../src/render.js';
+import { combineOriginals, createGuard, createLimit, createRenderer, playwrightCli, serve } from '../src/render.js';
 
 const dirSite = path.join(path.dirname(fileURLToPath(import.meta.url)), 'fixtures', 'site');
 const { renderer, reason } = await createRenderer({ viewports: [{ width: 800, height: 600 }] });
+
+/** The IDs of this process’s child processes (none where `pgrep` finds none) */
+const childPids = () => {
+  try {
+    return execFileSync('pgrep', ['-P', String(process.pid)], { encoding: 'utf8' }).trim().split('\n').map(Number);
+  } catch {
+    return [];
+  }
+};
+
+/**
+ * Ends the given processes, where they haven’t ended already
+ * @param {number[]} pids
+ */
+const killAll = (pids) => {
+  for (const pid of pids) {
+    try {
+      process.kill(pid, 'SIGKILL');
+    } catch {
+      // Already ended
+    }
+  }
+};
 
 describe('`createRenderer` browsers', () => {
   test('Falls back to other browsers where one doesn’t start, naming the one used', { skip: renderer ? false : `No browser: ${reason}` }, async () => {
@@ -90,13 +115,68 @@ describe('`createRenderer`', { skip: renderer ? false : `No browser: ${reason}` 
     }
   });
 
-  test('Rejects captures of pages that stop responding after loading, instead of waiting for them', async () => {
+  test('Rejects captures of pages that stop responding after loading, instead of waiting for them, and renders other pages', async () => {
     const found = await createRenderer({ viewports: [{ width: 800, height: 600 }], timeout: 1000 });
+    const rendererHung = /** @type {import('../src/render.js').Renderer} */ (found.renderer);
     try {
       const html = '<!doctype html><p>a</p><script>addEventListener("load", () => setTimeout(() => { for (;;); }, 0))</script>';
-      await assert.rejects(/** @type {import('../src/render.js').Renderer} */ (found.renderer).compare(createPage({ id: 'a.html', html }), html), /stopped responding/);
+      await assert.rejects(rendererHung.compare(createPage({ id: 'a.html', html }), html), /Page stopped responding/);
+      const verdict = await rendererHung.compare(createPage({ id: 'b.html', html: '<p>b' }), '<p>b');
+      assert.strictEqual(verdict.equal, true);
     } finally {
       await found.renderer?.close();
+    }
+  });
+
+  test('Rejects captures where the browser stops responding, at once after the first, and ends the browser on closing', { skip: process.platform === 'win32' ? 'No SIGSTOP on Windows' : false }, async () => {
+    const pidsBefore = childPids();
+    const found = await createRenderer({ viewports: [{ width: 800, height: 600 }], timeout: 1000 });
+    const rendererPaused = /** @type {import('../src/render.js').Renderer} */ (found.renderer);
+    const pids = childPids().filter((pid) => !pidsBefore.includes(pid));
+    let closed = false;
+    try {
+      assert.ok(pids.length, 'Browser process found');
+      // As the browser stalls on macOS where RunningBoard doesn’t answer
+      for (const pid of pids) process.kill(pid, 'SIGSTOP');
+      await assert.rejects(rendererPaused.compare(createPage({ id: 'a.html', html: '<p>a' }), '<p>a'), /Browser stopped responding/);
+      const start = Date.now();
+      await assert.rejects(rendererPaused.compare(createPage({ id: 'b.html', html: '<p>b' }), '<p>b'), /Browser stopped responding/);
+      assert.ok(Date.now() - start < 500, 'Rejects at once');
+      await rendererPaused.close();
+      closed = true;
+      for (const pid of pids) assert.throws(() => process.kill(pid, 0), { code: 'ESRCH' });
+    } finally {
+      if (!closed) await rendererPaused.close();
+      killAll(pids);
+    }
+  });
+
+  test('Rejects captures where the browser stops responding while loading a page, with the error the capture had', { skip: process.platform === 'win32' ? 'No SIGSTOP on Windows' : false }, async () => {
+    const pidsBefore = childPids();
+    const found = await createRenderer({ viewports: [{ width: 800, height: 600 }], timeout: 1000 });
+    const rendererPaused = /** @type {import('../src/render.js').Renderer} */ (found.renderer);
+    const pids = childPids().filter((pid) => !pidsBefore.includes(pid));
+    let paused = false;
+    let requests = 0;
+    // Pauses the browser as the last of the three captures (the original twice, and the minified
+    // page) asks for the style sheet, which then never comes, for all to be loading
+    const server = http.createServer(() => {
+      if (++requests < 3) return;
+      for (const pid of pids) process.kill(pid, 'SIGSTOP');
+      paused = true;
+    });
+    await new Promise((resolve) => server.listen(0, '127.0.0.1', () => resolve(undefined)));
+    const { port } = /** @type {import('node:net').AddressInfo} */ (server.address());
+    try {
+      assert.ok(pids.length, 'Browser process found');
+      const html = '<!doctype html><link rel=stylesheet href=stall.css><p>a</p>';
+      await assert.rejects(rendererPaused.compare(createPage({ id: 'a.html', html, url: `http://127.0.0.1:${port}/a.html` }), html), /page\.goto: Timeout 1000ms exceeded/);
+      assert.ok(paused, 'Browser paused while loading');
+    } finally {
+      server.closeAllConnections();
+      server.close();
+      await rendererPaused.close();
+      killAll(pids);
     }
   });
 
@@ -128,6 +208,23 @@ describe('`createRenderer`', { skip: renderer ? false : `No browser: ${reason}` 
     assert.strictEqual(verdict.equal, true);
   });
 });
+
+describe('`createGuard`', () => {
+  test('Rejects work that takes longer than the timeout, and all later work at once', async () => {
+    const answered = createGuard(50);
+    await assert.rejects(answered(() => new Promise(() => {})), /Browser stopped responding \(no answer within 50 ms\)/);
+    let called = false;
+    await assert.rejects(answered(async () => { called = true; }), /Browser stopped responding/);
+    assert.strictEqual(called, false);
+  });
+
+  test('Lets later work through after errors other than timeouts, passing on results', async () => {
+    const answered = createGuard(50);
+    await assert.rejects(answered(async () => { throw new Error('Failed'); }), /Failed/);
+    assert.strictEqual(await answered(async () => 'next'), 'next');
+  });
+});
+
 describe('`createLimit`', () => {
   test('Runs no more functions at once than allowed, in the order given, passing on results', async () => {
     const limit = createLimit(2);

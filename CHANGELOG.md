@@ -4,16 +4,17 @@ All notable changes to HTML Minifier Setup (HMS) are documented in this file, wh
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.4.0] - 2026-11-15
 
 ### Fixed
 
 * Stopped options kept with `--keep` that make pages look different from getting all other options rejected: Pages that look different with the kept options alone are no longer used to render-check the others, and the report notes them
 * Kept the browser from taking 30 seconds to close in Chrome after a page stopped responding
+* Kept the render check from hanging where the browser stops responding (as Chrome and Edge can on macOS): Pages are then noted as not render-checked, without waiting again, and the browser is ended
 
-### Added
+### Changed
 
-* Exported `toPresetConfig`, which gives the configuration as an HTML Minifier preset with changes, as the CLI offers to save it
+* **BREAKING:** Removed the programmatic API, as HMS is best run once rather than kept as a dependency; use `--json` or `-o` in scripts and CI
 
 ## [0.3.0] - 2026-11-14
 

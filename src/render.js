@@ -59,25 +59,53 @@ const TYPES = {
 /** @param {Viewport} viewport */
 const describeViewport = ({ width, height }) => `${width}×${height}`;
 
+// Told apart from other errors, as only it means the browser may no longer answer
+class Unresponsive extends Error {}
+
 /**
- * Settles as the page work does, or rejects where it takes longer than a responsive page would
+ * Settles as the work does, or rejects where it takes longer than responsive pages or browsers
  * @template T
  * @param {Promise<T>} work
  * @param {number} limit
+ * @param {string} [what] What stopped responding
  * @returns {Promise<T>}
  */
-async function responsive(work, limit) {
+async function responsive(work, limit, what = 'Page') {
   /** @type {NodeJS.Timeout | undefined} */
   let timer;
   // The work rejects as its context closes, which is no longer of interest
   work.catch(() => {});
   try {
     return await Promise.race([work, new Promise((_, reject) => {
-      timer = setTimeout(() => reject(new Error(`Page stopped responding (no answer within ${limit} ms)`)), limit);
+      timer = setTimeout(() => reject(new Unresponsive(`${what} stopped responding (no answer within ${limit} ms)`)), limit);
     })]);
   } finally {
     clearTimeout(timer);
   }
+}
+
+/**
+ * Runs browser work no longer than a responsive browser would take, and, once the browser
+ * stops answering, rejects all later work at once rather than waiting again
+ * @param {number} timeout
+ */
+export function createGuard(timeout) {
+  /** @type {Unresponsive | null} */
+  let errBrowser = null;
+  /**
+   * @template T
+   * @param {() => Promise<T>} work
+   * @returns {Promise<T>}
+   */
+  return async (work) => {
+    if (errBrowser) throw errBrowser;
+    try {
+      return await responsive(work(), timeout, 'Browser');
+    } catch (err) {
+      if (err instanceof Unresponsive) errBrowser = err;
+      throw err;
+    }
+  };
 }
 
 /**
@@ -223,20 +251,28 @@ export async function createRenderer({ viewports = VIEWPORTS_DEFAULT, timeout = 
   if (!playwright) return { renderer: null, reason: 'Playwright isn’t installed' };
   /** @type {import('playwright').Browser | null} */
   let browser = null;
+  // A server, rather than `launch`, for a process to end where the browser doesn’t close
+  /** @type {import('playwright').BrowserServer | null} */
+  let serverBrowser = null;
   let nameBrowser = '';
   for (const { name, channel } of browsers) {
     try {
-      browser = await playwright.chromium.launch(channel ? { channel } : {});
+      serverBrowser = await playwright.chromium.launchServer(channel ? { channel } : {});
+      browser = await playwright.chromium.connect(serverBrowser.wsEndpoint());
       nameBrowser = `${name} ${browser.version().split('.')[0]}`;
       break;
     } catch {
       // Tries the next browser
+      await serverBrowser?.kill();
+      serverBrowser = null;
     }
   }
-  if (!browser) {
+  if (!browser || !serverBrowser) {
     return { renderer: null, reason: `No browser found (${browsers.map(({ name }) => name).join(', ')})—\`npx playwright install chromium\` downloads Chromium`, missing: true };
   }
   const browserOpen = browser;
+  const serverOpen = serverBrowser;
+  const answered = createGuard(timeout);
 
   /** @type {Map<string | null, ReturnType<typeof serve>>} */
   const servers = new Map();
@@ -270,9 +306,9 @@ export async function createRenderer({ viewports = VIEWPORTS_DEFAULT, timeout = 
     const urlRequested = new URL(url);
     urlRequested.hash = '';
     return limit(async () => {
-      const context = await browserOpen.newContext({ viewport, deviceScaleFactor: 1, reducedMotion: 'reduce' });
+      const context = await answered(() => browserOpen.newContext({ viewport, deviceScaleFactor: 1, reducedMotion: 'reduce' }));
       try {
-        const tab = await context.newPage();
+        const tab = await answered(() => context.newPage());
         /** @type {string[]} */
         const errors = [];
         tab.on('pageerror', (err) => errors.push(err.message));
@@ -285,7 +321,7 @@ export async function createRenderer({ viewports = VIEWPORTS_DEFAULT, timeout = 
             if (response.status() === 403 && target.origin === urlRequested.origin) blocked.push(decodeURIComponent(target.pathname.slice(1)));
           });
         }
-        await tab.route((target) => target.href === urlRequested.href, (route) => route.fulfill({ status: 200, contentType: 'text/html; charset=utf-8', body: html }));
+        await answered(() => tab.route((target) => target.href === urlRequested.href, (route) => route.fulfill({ status: 200, contentType: 'text/html; charset=utf-8', body: html })));
         await tab.goto(url, { waitUntil: 'load', timeout });
         // For fonts and two frames, but not beyond the timeout, as either may never come
         await responsive(tab.evaluate(async (wait) => {
@@ -299,7 +335,8 @@ export async function createRenderer({ viewports = VIEWPORTS_DEFAULT, timeout = 
         const text = await responsive(tab.evaluate(() => document.body?.innerText ?? ''), timeout);
         return { shot, text, errors, blocked };
       } finally {
-        await context.close();
+        // Not waited for beyond the timeout, keeping the error the capture had, if any
+        await answered(() => context.close()).catch(() => {});
       }
     });
   }
@@ -389,14 +426,15 @@ export async function createRenderer({ viewports = VIEWPORTS_DEFAULT, timeout = 
       },
       async close() {
         try {
-          // Contexts first, as a browser waits for pages that stopped responding (in Chrome, 30 s)
-          await Promise.all(browserOpen.contexts().map((context) => context.close()));
+          await answered(async () => {
+            // Contexts first, as a browser waits for pages that stopped responding (Chrome: 30 s)
+            await Promise.all(browserOpen.contexts().map((context) => context.close()));
+            await serverOpen.close();
+          });
+        } catch {
+          await serverOpen.kill();
         } finally {
-          try {
-            await browserOpen.close();
-          } finally {
-            await Promise.all([...servers.values()].map(async (server) => (await server).close()));
-          }
+          await Promise.all([...servers.values()].map(async (server) => (await server).close()));
         }
       }
     }
