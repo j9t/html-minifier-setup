@@ -1,4 +1,4 @@
-# HTML Minifier Setup (Preview)
+# HTML Minifier Setup (Beta)
 
 [![npm version](https://img.shields.io/npm/v/html-minifier-setup.svg)](https://www.npmjs.com/package/html-minifier-setup) [![Build status](https://github.com/j9t/html-minifier-setup/workflows/Tests/badge.svg)](https://github.com/j9t/html-minifier-setup/actions) [![Socket](https://badge.socket.dev/npm/package/html-minifier-setup)](https://socket.dev/npm/package/html-minifier-setup) [![GitHub Sponsors](https://badgen.net/static/Support/Open%20Source/cyan)](https://github.com/sponsors/j9t)
 
