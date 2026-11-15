@@ -154,8 +154,11 @@ describe('`createRenderer`', { skip: renderer ? false : `No browser: ${reason}` 
     const rendererPaused = /** @type {import('../src/render.js').Renderer} */ (found.renderer);
     const pids = childPids().filter((pid) => !pidsBefore.includes(pid));
     let paused = false;
-    // Pauses the browser as it asks for the style sheet, which then never comes
+    let requests = 0;
+    // Pauses the browser as the last of the three captures (the original twice, and the minified
+    // page) asks for the style sheet, which then never comes, for all to be loading
     const server = http.createServer(() => {
+      if (++requests < 3) return;
       for (const pid of pids) process.kill(pid, 'SIGSTOP');
       paused = true;
     });
