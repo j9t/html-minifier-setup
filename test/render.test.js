@@ -153,14 +153,19 @@ describe('`createRenderer`', { skip: renderer ? false : `No browser: ${reason}` 
     const found = await createRenderer({ viewports: [{ width: 800, height: 600 }], timeout: 1000 });
     const rendererPaused = /** @type {import('../src/render.js').Renderer} */ (found.renderer);
     const pids = childPids().filter((pid) => !pidsBefore.includes(pid));
+    let paused = false;
     // Pauses the browser as it asks for the style sheet, which then never comes
-    const server = http.createServer(() => { for (const pid of pids) process.kill(pid, 'SIGSTOP'); });
+    const server = http.createServer(() => {
+      for (const pid of pids) process.kill(pid, 'SIGSTOP');
+      paused = true;
+    });
     await new Promise((resolve) => server.listen(0, '127.0.0.1', () => resolve(undefined)));
     const { port } = /** @type {import('node:net').AddressInfo} */ (server.address());
     try {
       assert.ok(pids.length, 'Browser process found');
       const html = '<!doctype html><link rel=stylesheet href=stall.css><p>a</p>';
-      await assert.rejects(rendererPaused.compare(createPage({ id: 'a.html', html, url: `http://127.0.0.1:${port}/a.html` }), html), (err) => err instanceof Error && !/Browser stopped responding/.test(err.message));
+      await assert.rejects(rendererPaused.compare(createPage({ id: 'a.html', html, url: `http://127.0.0.1:${port}/a.html` }), html), /page\.goto: Timeout 1000ms exceeded/);
+      assert.ok(paused, 'Browser paused while loading');
     } finally {
       server.closeAllConnections();
       server.close();

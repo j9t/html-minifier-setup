@@ -312,7 +312,7 @@ export async function createRenderer({ viewports = VIEWPORTS_DEFAULT, timeout = 
             if (response.status() === 403 && target.origin === urlRequested.origin) blocked.push(decodeURIComponent(target.pathname.slice(1)));
           });
         }
-        await tab.route((target) => target.href === urlRequested.href, (route) => route.fulfill({ status: 200, contentType: 'text/html; charset=utf-8', body: html }));
+        await answered(() => tab.route((target) => target.href === urlRequested.href, (route) => route.fulfill({ status: 200, contentType: 'text/html; charset=utf-8', body: html })));
         await tab.goto(url, { waitUntil: 'load', timeout });
         // For fonts and two frames, but not beyond the timeout, as either may never come
         await responsive(tab.evaluate(async (wait) => {
