@@ -326,7 +326,8 @@ export async function createRenderer({ viewports = VIEWPORTS_DEFAULT, timeout = 
         const text = await responsive(tab.evaluate(() => document.body?.innerText ?? ''), timeout);
         return { shot, text, errors, blocked };
       } finally {
-        await context.close();
+        // Not waited for beyond the timeout, keeping the error the capture had, if any
+        await answered(() => context.close()).catch(() => {});
       }
     });
   }

@@ -2,6 +2,7 @@ import { after, before, describe, test } from 'node:test';
 import assert from 'node:assert';
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
+import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -17,6 +18,20 @@ const childPids = () => {
     return execFileSync('pgrep', ['-P', String(process.pid)], { encoding: 'utf8' }).trim().split('\n').map(Number);
   } catch {
     return [];
+  }
+};
+
+/**
+ * Ends the given processes, where they haven’t ended already
+ * @param {number[]} pids
+ */
+const killAll = (pids) => {
+  for (const pid of pids) {
+    try {
+      process.kill(pid, 'SIGKILL');
+    } catch {
+      // Already ended
+    }
   }
 };
 
@@ -113,26 +128,44 @@ describe('`createRenderer`', { skip: renderer ? false : `No browser: ${reason}` 
   test('Rejects captures where the browser stops responding, at once after the first, and ends the browser on closing', { skip: process.platform === 'win32' ? 'No SIGSTOP on Windows' : false }, async () => {
     const pidsBefore = childPids();
     const found = await createRenderer({ viewports: [{ width: 800, height: 600 }], timeout: 1000 });
+    const rendererPaused = /** @type {import('../src/render.js').Renderer} */ (found.renderer);
     const pids = childPids().filter((pid) => !pidsBefore.includes(pid));
-    assert.ok(pids.length, 'Browser process found');
+    let closed = false;
     try {
+      assert.ok(pids.length, 'Browser process found');
       // As the browser stalls on macOS where RunningBoard doesn’t answer
       for (const pid of pids) process.kill(pid, 'SIGSTOP');
-      const rendererPaused = /** @type {import('../src/render.js').Renderer} */ (found.renderer);
       await assert.rejects(rendererPaused.compare(createPage({ id: 'a.html', html: '<p>a' }), '<p>a'), /Browser stopped responding/);
       const start = Date.now();
       await assert.rejects(rendererPaused.compare(createPage({ id: 'b.html', html: '<p>b' }), '<p>b'), /Browser stopped responding/);
       assert.ok(Date.now() - start < 500, 'Rejects at once');
       await rendererPaused.close();
+      closed = true;
       for (const pid of pids) assert.throws(() => process.kill(pid, 0), { code: 'ESRCH' });
     } finally {
-      for (const pid of pids) {
-        try {
-          process.kill(pid, 'SIGKILL');
-        } catch {
-          // Already ended
-        }
-      }
+      if (!closed) await rendererPaused.close();
+      killAll(pids);
+    }
+  });
+
+  test('Rejects captures where the browser stops responding while loading a page, with the error the capture had', { skip: process.platform === 'win32' ? 'No SIGSTOP on Windows' : false }, async () => {
+    const pidsBefore = childPids();
+    const found = await createRenderer({ viewports: [{ width: 800, height: 600 }], timeout: 1000 });
+    const rendererPaused = /** @type {import('../src/render.js').Renderer} */ (found.renderer);
+    const pids = childPids().filter((pid) => !pidsBefore.includes(pid));
+    // Pauses the browser as it asks for the style sheet, which then never comes
+    const server = http.createServer(() => { for (const pid of pids) process.kill(pid, 'SIGSTOP'); });
+    await new Promise((resolve) => server.listen(0, '127.0.0.1', () => resolve(undefined)));
+    const { port } = /** @type {import('node:net').AddressInfo} */ (server.address());
+    try {
+      assert.ok(pids.length, 'Browser process found');
+      const html = '<!doctype html><link rel=stylesheet href=stall.css><p>a</p>';
+      await assert.rejects(rendererPaused.compare(createPage({ id: 'a.html', html, url: `http://127.0.0.1:${port}/a.html` }), html), (err) => err instanceof Error && !/Browser stopped responding/.test(err.message));
+    } finally {
+      server.closeAllConnections();
+      server.close();
+      await rendererPaused.close();
+      killAll(pids);
     }
   });
 
