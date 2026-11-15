@@ -153,7 +153,7 @@ describe('`samplePaths`', () => {
     assert.deepStrictEqual(sample.map((p) => p[0]).sort(), ['a', 'b', 'c']);
   });
 
-  test('Spreads the sample across sections before the folders within them', () => {
+  test('Spreads the sample across sections before the directories within them', () => {
     const posts = Array.from({ length: 100 }, (_, index) => `blog/${index + 10}/index.html`);
     const paths = ['index.html', 'about/index.html', 'docs/a/index.html', 'docs/b/index.html', ...posts];
     const sample = samplePaths(paths, 6);
@@ -164,7 +164,7 @@ describe('`samplePaths`', () => {
     assert.notDeepStrictEqual(picked.sort(), ['blog/10/index.html', 'blog/11/index.html']);
   });
 
-  test('Spreads picks across the folders of a section', () => {
+  test('Spreads picks across the directories of a section', () => {
     const posts = Array.from({ length: 100 }, (_, index) => `${String(index).padStart(3, '0')}/index.html`);
     const numbers = samplePaths(posts, 10).map((p) => Number(p.slice(0, 3))).sort((a, b) => a - b);
     // At most a fifth of the range apart from the next pick

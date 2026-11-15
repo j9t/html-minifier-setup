@@ -141,7 +141,7 @@ function interleave(lists, limit) {
 }
 
 /**
- * Picks pages across a site’s sections first and then across the folders within them, so that
+ * Picks pages across a site’s sections first and then across the directories within them, so that
  * a sample covers its templates rather than one section’s first pages; the same paths always
  * give the same sample
  * @param {string[]} paths
@@ -150,28 +150,28 @@ function interleave(lists, limit) {
  */
 export function samplePaths(paths, count) {
   if (paths.length <= count) return paths;
-  /** @typedef {{files: string[], folders: Map<string, Folder>}} Folder */
-  /** @type {Folder} */
-  const root = { files: [], folders: new Map() };
+  /** @typedef {{files: string[], dirs: Map<string, Dir>}} Dir */
+  /** @type {Dir} */
+  const root = { files: [], dirs: new Map() };
   for (const item of [...paths].sort()) {
     const segments = item.split(/[\\/]/);
-    let folder = root;
+    let dir = root;
     for (const segment of segments.slice(0, -1)) {
-      let next = folder.folders.get(segment);
+      let next = dir.dirs.get(segment);
       if (!next) {
-        next = { files: [], folders: new Map() };
-        folder.folders.set(segment, next);
+        next = { files: [], dirs: new Map() };
+        dir.dirs.set(segment, next);
       }
-      folder = next;
+      dir = next;
     }
-    folder.files.push(item);
+    dir.files.push(item);
   }
   /**
-   * The first `count` pages of the folder, in the order they’re picked
-   * @param {Folder} folder
+   * The first `count` pages of the directory, in the order they’re picked
+   * @param {Dir} dir
    * @returns {string[]}
    */
-  const order = (folder) => interleave([spread(folder.files), ...spread([...folder.folders.values()]).map(order)], count);
+  const order = (dir) => interleave([spread(dir.files), ...spread([...dir.dirs.values()]).map(order)], count);
   return order(root);
 }
 

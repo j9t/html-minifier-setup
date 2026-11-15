@@ -81,10 +81,10 @@ const formatChange = (before, after, color) => {
 };
 
 /**
- * The folder all pages are in, with a trailing slash, if any
+ * The directory all pages are in, with a trailing slash, if any
  * @param {string[]} pages
  */
-function sharedFolder(pages) {
+function sharedDir(pages) {
   const [first = [], ...rest] = pages.map((page) => page.split('/').slice(0, -1));
   let length = 0;
   while (length < first.length && rest.every((segments) => segments[length] === first[length])) length++;
@@ -157,7 +157,7 @@ function table(rows) {
 export function formatReport(result, { renderReason = '', color = false, verbose = false } = {}) {
   const { blocked = [] } = result;
   const { metric } = result;
-  const dirShared = sharedFolder(result.pages);
+  const dirShared = sharedDir(result.pages);
   const evaluations = result.evaluations.map((evaluation) => ({
     ...evaluation,
     reasons: evaluation.reasons.map((reason) => reason.page?.startsWith(dirShared) ? { ...reason, page: reason.page.slice(dirShared.length) } : reason)

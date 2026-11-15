@@ -207,7 +207,7 @@ describe('`formatReport` details', () => {
 });
 
 describe('`formatReport` paths', () => {
-  test('Shortens page paths by the folder all pages share, naming it once', () => {
+  test('Shortens page paths by the directory all pages share, naming it once', () => {
     const result = resultOf(SIZES, [{ status: 'rejected', reasons: [{ level: 'risk', page: 'Security/Faq/a.html', message: 'Removes a comment' }] }]);
     result.pages = ['Security/Faq/a.html', 'Security/Faq/b.html'];
     const report = formatReport(result);
@@ -215,7 +215,7 @@ describe('`formatReport` paths', () => {
     assert.match(report, /Risk \(a\.html\): Removes a comment/);
   });
 
-  test('Keeps page paths without a shared folder', () => {
+  test('Keeps page paths without a shared directory', () => {
     const result = resultOf(SIZES, [{ status: 'rejected', reasons: [{ level: 'risk', page: 'blog/a.html', message: 'Removes a comment' }] }]);
     result.pages = ['blog/a.html', 'index.html'];
     const report = formatReport(result);

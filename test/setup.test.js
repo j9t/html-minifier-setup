@@ -141,7 +141,7 @@ describe('`projectOf`', () => {
     });
   });
 
-  test('Falls back to the input folder outside projects and repositories', async () => {
+  test('Falls back to the input directory outside projects and repositories', async () => {
     await inDir({ 'site/index.html': '' }, async (dir) => {
       const found = projectOf(['site'], dir);
       assert.ok(found === path.join(dir, 'site') || !found.startsWith(dir), found);
@@ -165,7 +165,7 @@ describe('`offerSetup`', () => {
     });
   });
 
-  test('Saves the configuration to the current folder by default', async () => {
+  test('Saves the configuration to the current directory by default', async () => {
     await inDir({}, async (dir) => {
       const { ask } = scripted(['y', '', 'n']);
       await offerSetup({ config: CONFIG, cwd: dir, ask, install: fakeInstall().install, log() {} });
@@ -174,7 +174,7 @@ describe('`offerSetup`', () => {
     });
   });
 
-  test('Saves the configuration to a given folder, creating it', async () => {
+  test('Saves the configuration to a given directory, creating it', async () => {
     await inDir({}, async (dir) => {
       const { ask } = scripted(['yes', 'site', 'n']);
       await offerSetup({ config: CONFIG, cwd: dir, ask, install: fakeInstall().install, log() {} });
@@ -201,12 +201,12 @@ describe('`offerSetup`', () => {
     });
   });
 
-  test('Installs HTML Minifier in the project folder by default, with its package manager', async () => {
+  test('Installs HTML Minifier in the project directory by default, with its package manager', async () => {
     await inDir({ 'package.json': '{}', 'yarn.lock': '', 'site/index.html': '' }, async (dir) => {
       const { ask, questions } = scripted(['y', 'site', 'y', '']);
       const { install, calls } = fakeInstall();
       await offerSetup({ config: CONFIG, cwd: dir, ask, install, log() {} });
-      assert.match(questions[3] ?? '', /current folder/);
+      assert.match(questions[3] ?? '', /current directory/);
       assert.deepStrictEqual(calls, [{ dir, manager: 'yarn' }]);
     });
   });
@@ -256,21 +256,21 @@ describe('`offerSetup`', () => {
     });
   });
 
-  test('Works in the project given, naming it where it isn’t the current folder', async () => {
+  test('Works in the project given, naming it where it isn’t the current directory', async () => {
     await inDir({ 'tool/node_modules/html-minifier/package.json': PACKAGE_HM, 'site/package.json': '{}' }, async (dir) => {
       const dirSite = path.join(dir, 'site');
       const { ask, questions } = scripted(['y', '', 'y', '']);
       const { install, calls } = fakeInstall();
       await offerSetup({ config: CONFIG, cwd: path.join(dir, 'tool'), dirProject: dirSite, ask, install, log() {} });
-      assert.match(questions[1] ?? '', /Folder \(\.\.[\\/]site\)/);
+      assert.match(questions[1] ?? '', /Directory \(\.\.[\\/]site\)/);
       assert.ok(fs.existsSync(path.join(dirSite, 'html-minifier.config.json')));
       assert.match(questions[2] ?? '', /Install HTML Minifier/);
-      assert.match(questions[3] ?? '', /Folder \(\.\.[\\/]site\)/);
+      assert.match(questions[3] ?? '', /Directory \(\.\.[\\/]site\)/);
       assert.deepStrictEqual(calls, [{ dir: dirSite, manager: 'npm' }]);
     });
   });
 
-  test('Says where HTML Minifier is installed, where that isn’t the current folder', async () => {
+  test('Says where HTML Minifier is installed, where that isn’t the current directory', async () => {
     await inDir({ 'site/node_modules/html-minifier/package.json': PACKAGE_HM, 'site/package.json': '{}' }, async (dir) => {
       const logged = /** @type {string[]} */ ([]);
       await offerSetup({ config: CONFIG, cwd: dir, dirProject: path.join(dir, 'site'), ask: scripted([]).ask, install: fakeInstall().install, log: (message) => logged.push(message) });
@@ -284,7 +284,7 @@ describe('`offerSetup`', () => {
       const logged = /** @type {string[]} */ ([]);
       const first = fakeInstall();
       await offerSetup({ config: CONFIG, cwd: dir, ask: declined.ask, install: first.install, log: (message) => logged.push(message) });
-      assert.match(declined.questions[3] ?? '', /Create package\.json in current folder\?/);
+      assert.match(declined.questions[3] ?? '', /Create package\.json in current directory\?/);
       assert.deepStrictEqual(first.calls, []);
       assert.ok(!fs.existsSync(path.join(dir, 'package.json')));
       assert.match(logged.join('\n'), /npx html-minifier/);

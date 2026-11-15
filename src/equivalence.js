@@ -13,7 +13,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
  * @prop {(input: string, output: string, options: Record<string, unknown>) => string[]} compare Differences found, if any
  */
 
-// Installed, the sibling folder is HTML Minifier as dependency, not a checkout
+// Installed, the sibling directory is HTML Minifier as dependency, not a checkout
 const INSTALLED = fileURLToPath(import.meta.url).split(path.sep).includes('node_modules');
 const FILE_COMPARE = fileURLToPath(new URL('../../html-minifier/test/equivalence/compare.js', import.meta.url));
 // Lists the options the check is run with

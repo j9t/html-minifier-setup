@@ -16,13 +16,13 @@ npx html-minifier-setup [inputs...] [options]
 
 (Like HTML Minifier, HTML Minifier Setup requires Node.js ≥22.13.)
 
-Inputs are HTML files, directories, or URLs (default: the current directory). From directories, up to 20 pages (`--sample`) are picked, spread across a site’s sections first and then across the folders within them, to cover its templates. The same pages give the same sample, and the report says how many pages it was taken from.
+Inputs are HTML files, directories, or URLs (default: the current directory). From directories, up to 20 pages (`--sample`) are picked, spread across a site’s sections first and then across the directories within them, to cover its templates. The same pages give the same sample, and the report says how many pages it was taken from.
 
 The render check, which catches most of what static checks can’t, uses Playwright’s Chromium, or else Chrome or Edge, if installed. Where none is found, HTML Minifier Setup offers to download Chromium.
 
-Local pages are served to the browser from their folder. Symbolic links that lead outside it are followed only if you agree (or pass `--follow-links`), as a page’s scripts could send on what they lead to. Where nobody can answer, they aren’t followed.
+Local pages are served to the browser from their directory. Symbolic links that lead outside it are followed only if you agree (or pass `--follow-links`), as a page’s scripts could send on what they lead to. Where nobody can answer, they aren’t followed.
 
-On a terminal, HTML Minifier Setup then offers to save the recommended configuration (as html-minifier.config.json, in the project of the pages evaluated or a folder of your choice) and, where it isn’t installed yet, to install HTML Minifier there (with the package manager the project uses), or to update it where a newer version is out. All offers default to no. Where one of HTML Minifier’s presets with a few changes has the same effect, it also offers to save the configuration that way—shorter, and following changes to the preset.
+On a terminal, HTML Minifier Setup then offers to save the recommended configuration (as html-minifier.config.json, in the project of the pages evaluated or a directory of your choice) and, where it isn’t installed yet, to install HTML Minifier there (with the package manager the project uses), or to update it where a newer version is out. All offers default to no. Where one of HTML Minifier’s presets with a few changes has the same effect, it also offers to save the configuration that way—shorter, and following changes to the preset.
 
 ```shell
 # Evaluate a build directory and write the configuration to html-minifier.config.json

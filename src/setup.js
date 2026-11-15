@@ -167,7 +167,7 @@ export const isYes = (answer) => /^\s*y(?:es)?\s*$/i.test(answer);
  * @param {string} dir
  * @param {string} cwd
  */
-const describeDir = (dir, cwd) => dir === cwd ? 'current folder' : path.relative(cwd, dir) || '.';
+const describeDir = (dir, cwd) => dir === cwd ? 'current directory' : path.relative(cwd, dir) || '.';
 
 /**
  * @param {{config: Record<string, unknown>, dirProject?: string, configPreset?: {name: string, changes: string[], config: Record<string, unknown>} | null, cwd: string, ask: (question: string) => Promise<string>, install?: (dir: string, manager: PackageManager) => Promise<boolean>, latest?: Promise<string | null> | null, log: (message: string) => void}} settings
@@ -179,14 +179,14 @@ export async function offerSetup({ config, dirProject, configPreset = null, cwd,
   let dirTarget = dirProject ?? cwd;
 
   if (isYes(await ask('Save configuration file? (y/N) '))) {
-    dirTarget = path.resolve(cwd, (await ask(`Folder (${describeDir(dirTarget, cwd)}): `)).trim() || dirTarget);
+    dirTarget = path.resolve(cwd, (await ask(`Directory (${describeDir(dirTarget, cwd)}): `)).trim() || dirTarget);
     const file = path.join(dirTarget, CONFIG_FILE);
     if (!fs.existsSync(file) || isYes(await ask(`Overwrite ${path.relative(cwd, file)}? (y/N) `))) {
       const asPreset = configPreset && isYes(await ask(`Save it as preset \`${configPreset.name}\` with ${configPreset.changes.length} change${configPreset.changes.length === 1 ? '' : 's'} (${configPreset.changes.map((name) => `\`${name}\``).join(', ')})? Same effect, shorter, and follows changes to the preset (y/N) `));
       await fs.promises.mkdir(dirTarget, { recursive: true });
       await fs.promises.writeFile(file, `${JSON.stringify(asPreset ? configPreset.config : config, null, 2)}\n`);
       fileConfig = file;
-      log(`Saved ${path.relative(cwd, file)}${dirTarget === cwd ? '' : '—HTML Minifier reads it when run from that folder'}`);
+      log(`Saved ${path.relative(cwd, file)}${dirTarget === cwd ? '' : '—HTML Minifier reads it when run from that directory'}`);
     } else {
       log('Not saved');
     }
@@ -196,7 +196,7 @@ export async function offerSetup({ config, dirProject, configPreset = null, cwd,
   const found = findPackage('html-minifier', dirTarget);
   const versionLatest = await latest;
   if (found) {
-    // As the project folder above `node_modules`
+    // As the project directory above `node_modules`
     const dirInstalled = path.dirname(path.dirname(found.dir));
     const where = dirInstalled === cwd ? '' : ` in ${describeDir(dirInstalled, cwd)}`;
     if (!versionLatest || !isNewer(versionLatest, found.version)) {
@@ -209,7 +209,7 @@ export async function offerSetup({ config, dirProject, configPreset = null, cwd,
   let installed = false;
   if (isYes(await ask(`Install HTML Minifier${versionLatest ? ` ${versionLatest} (latest)` : ''}? (y/N) `))) {
     const dirDefault = findRoot(dirTarget);
-    const dirInstall = path.resolve(cwd, (await ask(`Folder (${describeDir(dirDefault, cwd)}): `)).trim() || dirDefault);
+    const dirInstall = path.resolve(cwd, (await ask(`Directory (${describeDir(dirDefault, cwd)}): `)).trim() || dirDefault);
     const filePackage = path.join(dirInstall, 'package.json');
     // Package managers would otherwise install into the nearest project above
     if (!fs.existsSync(filePackage)) {
