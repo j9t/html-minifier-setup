@@ -6,7 +6,7 @@ HTML Minifier Setup (HMS) helps you select the [HTML Minifier](https://www.npmjs
 
 It also reports what each option saves, which is useful on its own: Which options pay off on your site, and which don’t?
 
-ℹ️ **This is an early release. Options, output, and API may change before 1.0.0. Feedback is welcome.**
+ℹ️ **This is an early release. Options and output may change before 1.0.0. Feedback is welcome.**
 
 ## Usage
 
@@ -50,24 +50,9 @@ npx html-minifier --input-dir ./dist --output-dir ./dist
 | `--json` | Print the full result as JSON |
 | `-v, --verbose` | Show every page and viewport in details (rather than a summary with an example), more notes, and progress line by line where STDERR isn’t a terminal |
 
-### Programmatic use
+### Scripts and CI
 
-HTML Minifier Setup is ESM-only.
-
-```js
-import { createRenderer, customize, loadPages, toConfig } from 'html-minifier-setup';
-
-const pages = await loadPages(['./dist']);
-const { renderer } = await createRenderer();
-try {
-  const result = await customize(pages, { renderer, metric: 'brotli' });
-  console.log(toConfig(result));
-} finally {
-  await renderer?.close();
-}
-```
-
-`toPresetConfig(result)` gives the configuration as one of HTML Minifier’s presets with changes (where that at least halves the options to list), or else `null`.
+HTML Minifier Setup is meant to be run, not installed: It has no programmatic API. For scripts and CI, use `--json` (which prints the full result) or `-o` (which writes the configuration).
 
 ## How it works
 

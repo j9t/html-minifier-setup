@@ -16,7 +16,8 @@ const fileCli = path.join(dirTest, '..', 'cli.js');
  * @returns {Promise<{code: number | null, stdout: string, stderr: string}>}
  */
 const run = (args, cwd) => new Promise((resolve) => {
-  const child = spawn(process.execPath, [fileCli, ...args], { cwd, env: { ...process.env, NO_COLOR: '1' } });
+  // Ended where it hangs, with `SIGKILL` as Playwright would wait on a stalled browser on `SIGTERM`
+  const child = spawn(process.execPath, [fileCli, ...args], { cwd, env: { ...process.env, NO_COLOR: '1' }, timeout: 60000, killSignal: 'SIGKILL' });
   let stdout = '';
   let stderr = '';
   child.stdout.on('data', (chunk) => { stdout += chunk; });

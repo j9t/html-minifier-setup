@@ -1,5 +1,6 @@
 import { after, before, describe, test } from 'node:test';
 import assert from 'node:assert';
+import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -9,6 +10,15 @@ import { combineOriginals, createLimit, createRenderer, playwrightCli, serve } f
 
 const dirSite = path.join(path.dirname(fileURLToPath(import.meta.url)), 'fixtures', 'site');
 const { renderer, reason } = await createRenderer({ viewports: [{ width: 800, height: 600 }] });
+
+/** The IDs of this process’s child processes (none where `pgrep` finds none) */
+const childPids = () => {
+  try {
+    return execFileSync('pgrep', ['-P', String(process.pid)], { encoding: 'utf8' }).trim().split('\n').map(Number);
+  } catch {
+    return [];
+  }
+};
 
 describe('`createRenderer` browsers', () => {
   test('Falls back to other browsers where one doesn’t start, naming the one used', { skip: renderer ? false : `No browser: ${reason}` }, async () => {
@@ -97,6 +107,32 @@ describe('`createRenderer`', { skip: renderer ? false : `No browser: ${reason}` 
       await assert.rejects(/** @type {import('../src/render.js').Renderer} */ (found.renderer).compare(createPage({ id: 'a.html', html }), html), /stopped responding/);
     } finally {
       await found.renderer?.close();
+    }
+  });
+
+  test('Rejects captures where the browser stops responding, at once after the first, and ends the browser on closing', { skip: process.platform === 'win32' ? 'No SIGSTOP on Windows' : false }, async () => {
+    const pidsBefore = childPids();
+    const found = await createRenderer({ viewports: [{ width: 800, height: 600 }], timeout: 1000 });
+    const pids = childPids().filter((pid) => !pidsBefore.includes(pid));
+    assert.ok(pids.length, 'Browser process found');
+    try {
+      // As the browser stalls on macOS where RunningBoard doesn’t answer
+      for (const pid of pids) process.kill(pid, 'SIGSTOP');
+      const rendererPaused = /** @type {import('../src/render.js').Renderer} */ (found.renderer);
+      await assert.rejects(rendererPaused.compare(createPage({ id: 'a.html', html: '<p>a' }), '<p>a'), /Browser stopped responding/);
+      const start = Date.now();
+      await assert.rejects(rendererPaused.compare(createPage({ id: 'b.html', html: '<p>b' }), '<p>b'), /Browser stopped responding/);
+      assert.ok(Date.now() - start < 500, 'Rejects at once');
+      await rendererPaused.close();
+      for (const pid of pids) assert.throws(() => process.kill(pid, 0), { code: 'ESRCH' });
+    } finally {
+      for (const pid of pids) {
+        try {
+          process.kill(pid, 'SIGKILL');
+        } catch {
+          // Already ended
+        }
+      }
     }
   });
 

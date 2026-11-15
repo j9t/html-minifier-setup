@@ -60,20 +60,21 @@ const TYPES = {
 const describeViewport = ({ width, height }) => `${width}×${height}`;
 
 /**
- * Settles as the page work does, or rejects where it takes longer than a responsive page would
+ * Settles as the work does, or rejects where it takes longer than responsive pages or browsers
  * @template T
  * @param {Promise<T>} work
  * @param {number} limit
+ * @param {string} [what] What stopped responding
  * @returns {Promise<T>}
  */
-async function responsive(work, limit) {
+async function responsive(work, limit, what = 'Page') {
   /** @type {NodeJS.Timeout | undefined} */
   let timer;
   // The work rejects as its context closes, which is no longer of interest
   work.catch(() => {});
   try {
     return await Promise.race([work, new Promise((_, reject) => {
-      timer = setTimeout(() => reject(new Error(`Page stopped responding (no answer within ${limit} ms)`)), limit);
+      timer = setTimeout(() => reject(new Error(`${what} stopped responding (no answer within ${limit} ms)`)), limit);
     })]);
   } finally {
     clearTimeout(timer);
@@ -223,20 +224,46 @@ export async function createRenderer({ viewports = VIEWPORTS_DEFAULT, timeout = 
   if (!playwright) return { renderer: null, reason: 'Playwright isn’t installed' };
   /** @type {import('playwright').Browser | null} */
   let browser = null;
+  // A server, rather than `launch`, for a process to end where the browser doesn’t close
+  /** @type {import('playwright').BrowserServer | null} */
+  let serverBrowser = null;
   let nameBrowser = '';
   for (const { name, channel } of browsers) {
     try {
-      browser = await playwright.chromium.launch(channel ? { channel } : {});
+      serverBrowser = await playwright.chromium.launchServer(channel ? { channel } : {});
+      browser = await playwright.chromium.connect(serverBrowser.wsEndpoint());
       nameBrowser = `${name} ${browser.version().split('.')[0]}`;
       break;
     } catch {
       // Tries the next browser
+      await serverBrowser?.kill();
+      serverBrowser = null;
     }
   }
-  if (!browser) {
+  if (!browser || !serverBrowser) {
     return { renderer: null, reason: `No browser found (${browsers.map(({ name }) => name).join(', ')})—\`npx playwright install chromium\` downloads Chromium`, missing: true };
   }
   const browserOpen = browser;
+  const serverOpen = serverBrowser;
+  // Once the browser stops answering, it’s left to be ended, rather than waited for again
+  /** @type {unknown} */
+  let errBrowser = null;
+
+  /**
+   * Waits for the browser no longer than a responsive one would take
+   * @template T
+   * @param {() => Promise<T>} work
+   * @returns {Promise<T>}
+   */
+  async function answered(work) {
+    if (errBrowser) throw errBrowser;
+    try {
+      return await responsive(work(), timeout, 'Browser');
+    } catch (err) {
+      errBrowser = err;
+      throw err;
+    }
+  }
 
   /** @type {Map<string | null, ReturnType<typeof serve>>} */
   const servers = new Map();
@@ -270,9 +297,9 @@ export async function createRenderer({ viewports = VIEWPORTS_DEFAULT, timeout = 
     const urlRequested = new URL(url);
     urlRequested.hash = '';
     return limit(async () => {
-      const context = await browserOpen.newContext({ viewport, deviceScaleFactor: 1, reducedMotion: 'reduce' });
+      const context = await answered(() => browserOpen.newContext({ viewport, deviceScaleFactor: 1, reducedMotion: 'reduce' }));
       try {
-        const tab = await context.newPage();
+        const tab = await answered(() => context.newPage());
         /** @type {string[]} */
         const errors = [];
         tab.on('pageerror', (err) => errors.push(err.message));
@@ -389,14 +416,15 @@ export async function createRenderer({ viewports = VIEWPORTS_DEFAULT, timeout = 
       },
       async close() {
         try {
-          // Contexts first, as a browser waits for pages that stopped responding (in Chrome, 30 s)
-          await Promise.all(browserOpen.contexts().map((context) => context.close()));
+          await answered(async () => {
+            // Contexts first, as a browser waits for pages that stopped responding (Chrome: 30 s)
+            await Promise.all(browserOpen.contexts().map((context) => context.close()));
+            await serverOpen.close();
+          });
+        } catch {
+          await serverOpen.kill();
         } finally {
-          try {
-            await browserOpen.close();
-          } finally {
-            await Promise.all([...servers.values()].map(async (server) => (await server).close()));
-          }
+          await Promise.all([...servers.values()].map(async (server) => (await server).close()));
         }
       }
     }
