@@ -59,6 +59,9 @@ const TYPES = {
 /** @param {Viewport} viewport */
 const describeViewport = ({ width, height }) => `${width}×${height}`;
 
+// Told apart from other errors, as only it means the browser may no longer answer
+class Unresponsive extends Error {}
+
 /**
  * Settles as the work does, or rejects where it takes longer than responsive pages or browsers
  * @template T
@@ -74,11 +77,35 @@ async function responsive(work, limit, what = 'Page') {
   work.catch(() => {});
   try {
     return await Promise.race([work, new Promise((_, reject) => {
-      timer = setTimeout(() => reject(new Error(`${what} stopped responding (no answer within ${limit} ms)`)), limit);
+      timer = setTimeout(() => reject(new Unresponsive(`${what} stopped responding (no answer within ${limit} ms)`)), limit);
     })]);
   } finally {
     clearTimeout(timer);
   }
+}
+
+/**
+ * Runs browser work no longer than a responsive browser would take, and, once the browser
+ * stops answering, rejects all later work at once rather than waiting again
+ * @param {number} timeout
+ */
+export function createGuard(timeout) {
+  /** @type {Unresponsive | null} */
+  let errBrowser = null;
+  /**
+   * @template T
+   * @param {() => Promise<T>} work
+   * @returns {Promise<T>}
+   */
+  return async (work) => {
+    if (errBrowser) throw errBrowser;
+    try {
+      return await responsive(work(), timeout, 'Browser');
+    } catch (err) {
+      if (err instanceof Unresponsive) errBrowser = err;
+      throw err;
+    }
+  };
 }
 
 /**
@@ -245,25 +272,7 @@ export async function createRenderer({ viewports = VIEWPORTS_DEFAULT, timeout = 
   }
   const browserOpen = browser;
   const serverOpen = serverBrowser;
-  // Once the browser stops answering, it’s left to be ended, rather than waited for again
-  /** @type {unknown} */
-  let errBrowser = null;
-
-  /**
-   * Waits for the browser no longer than a responsive one would take
-   * @template T
-   * @param {() => Promise<T>} work
-   * @returns {Promise<T>}
-   */
-  async function answered(work) {
-    if (errBrowser) throw errBrowser;
-    try {
-      return await responsive(work(), timeout, 'Browser');
-    } catch (err) {
-      errBrowser = err;
-      throw err;
-    }
-  }
+  const answered = createGuard(timeout);
 
   /** @type {Map<string | null, ReturnType<typeof serve>>} */
   const servers = new Map();

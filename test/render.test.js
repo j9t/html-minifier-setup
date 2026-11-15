@@ -7,7 +7,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createPage, loadPages } from '../src/pages.js';
-import { combineOriginals, createLimit, createRenderer, playwrightCli, serve } from '../src/render.js';
+import { combineOriginals, createGuard, createLimit, createRenderer, playwrightCli, serve } from '../src/render.js';
 
 const dirSite = path.join(path.dirname(fileURLToPath(import.meta.url)), 'fixtures', 'site');
 const { renderer, reason } = await createRenderer({ viewports: [{ width: 800, height: 600 }] });
@@ -115,11 +115,14 @@ describe('`createRenderer`', { skip: renderer ? false : `No browser: ${reason}` 
     }
   });
 
-  test('Rejects captures of pages that stop responding after loading, instead of waiting for them', async () => {
+  test('Rejects captures of pages that stop responding after loading, instead of waiting for them, and renders other pages', async () => {
     const found = await createRenderer({ viewports: [{ width: 800, height: 600 }], timeout: 1000 });
+    const rendererHung = /** @type {import('../src/render.js').Renderer} */ (found.renderer);
     try {
       const html = '<!doctype html><p>a</p><script>addEventListener("load", () => setTimeout(() => { for (;;); }, 0))</script>';
-      await assert.rejects(/** @type {import('../src/render.js').Renderer} */ (found.renderer).compare(createPage({ id: 'a.html', html }), html), /stopped responding/);
+      await assert.rejects(rendererHung.compare(createPage({ id: 'a.html', html }), html), /Page stopped responding/);
+      const verdict = await rendererHung.compare(createPage({ id: 'b.html', html: '<p>b' }), '<p>b');
+      assert.strictEqual(verdict.equal, true);
     } finally {
       await found.renderer?.close();
     }
@@ -205,6 +208,23 @@ describe('`createRenderer`', { skip: renderer ? false : `No browser: ${reason}` 
     assert.strictEqual(verdict.equal, true);
   });
 });
+
+describe('`createGuard`', () => {
+  test('Rejects work that takes longer than the timeout, and all later work at once', async () => {
+    const answered = createGuard(50);
+    await assert.rejects(answered(() => new Promise(() => {})), /Browser stopped responding \(no answer within 50 ms\)/);
+    let called = false;
+    await assert.rejects(answered(async () => { called = true; }), /Browser stopped responding/);
+    assert.strictEqual(called, false);
+  });
+
+  test('Lets later work through after errors other than timeouts, passing on results', async () => {
+    const answered = createGuard(50);
+    await assert.rejects(answered(async () => { throw new Error('Failed'); }), /Failed/);
+    assert.strictEqual(await answered(async () => 'next'), 'next');
+  });
+});
+
 describe('`createLimit`', () => {
   test('Runs no more functions at once than allowed, in the order given, passing on results', async () => {
     const limit = createLimit(2);
