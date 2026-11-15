@@ -92,6 +92,24 @@ describe('`customize`', () => {
     assert.doesNotMatch(result.notes.join('\n'), /maximum number of rounds/);
   });
 
+  test('Render-checks pages sharing an ID with one that kept options make look different', async () => {
+    // From different roots: Removing comments changes the first, collapsing whitespace the second
+    const pageComment = createPage({ id: 'index.html', html: '<!-- x --><p>a</p>', resources: {} });
+    const pageSpace = createPage({ id: 'index.html', html: '<p>a</p>\n\n<p>b</p>', resources: {} });
+    const renderer = {
+      /** @param {import('../src/pages.js').Page} page @param {string} html */
+      async compare(page, html) {
+        const equal = page === pageComment ? html.includes('<!--') : html.includes('\n');
+        return equal ? { equal: true, reasons: [], notes: [] } : { equal: false, reasons: ['Renders differently'], notes: [] };
+      },
+      async close() {}
+    };
+    const result = await customize([pageComment, pageSpace], { keep: ['removeComments'], renderer, presets: false });
+    const collapse = evaluation(result, 'collapseWhitespace');
+    assert.ok(collapse.reasons.some((reason) => reason.level === 'render' && reason.page === 'index.html'));
+    assert.strictEqual(collapse.variant, 'preserveLineBreaks');
+  });
+
   test('Doesn’t evaluate options whose requirement is rejected or skipped', async () => {
     const result = await customize(pageHome, { skip: ['minifyCSS'] });
     const unused = evaluation(result, 'removeUnusedCSS');

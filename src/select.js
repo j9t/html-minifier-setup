@@ -187,7 +187,7 @@ export async function customize(pagesGiven, settings = {}) {
   /** @type {Set<string>} */
   let pagesUnchecked = new Set();
   // Pages kept options alone make look different, where other options can’t be render-checked
-  /** @type {Set<string>} */
+  /** @type {Set<import('./pages.js').Page>} */
   let pagesKeptDiffer = new Set();
 
   /** @param {string} name */
@@ -379,10 +379,10 @@ export async function customize(pagesGiven, settings = {}) {
       pagesKeptDiffer = new Set();
       if (failuresAll.length && kept.length) {
         const { failures: failuresKept } = await failingPages(failuresAll.map(({ page }) => page), combine(kept), { detail: `${kept.length} kept options` });
-        for (const { page } of failuresKept) pagesKeptDiffer.add(page.id);
+        for (const { page } of failuresKept) pagesKeptDiffer.add(page);
       }
-      const failures = failuresAll.filter(({ page }) => !pagesKeptDiffer.has(page.id));
-      pagesUnchecked = new Set([...inconclusive, ...pagesKeptDiffer]);
+      const failures = failuresAll.filter(({ page }) => !pagesKeptDiffer.has(page));
+      pagesUnchecked = new Set([...inconclusive, ...[...pagesKeptDiffer].map((page) => page.id)]);
       if (!failures.length) break;
       const subset = failures.map(({ page }) => page);
       const testable = inUse().filter((evaluation) => evaluation.status === 'accepted');
@@ -524,7 +524,7 @@ export async function customize(pagesGiven, settings = {}) {
     pagesFound: pagesFound !== undefined && pagesFound > pagesGiven.length ? pagesFound : null,
     rendered: Boolean(renderer),
     equivalence: equivalence?.source ?? null,
-    notes: [...notes, ...[...pagesKeptDiffer].map((id) => `${id}: Looks different with the kept options alone, so other options weren’t render-checked on it`)],
+    notes: [...notes, ...[...pagesKeptDiffer].map((page) => `${page.id}: Looks different with the kept options alone, so other options weren’t render-checked on it`)],
     presets: comparisons,
     renderedSame: Boolean(renderer) && !renderLimitReached && !pagesUnchecked.size && !blocked.size,
     blocked: [...blocked].sort(),
