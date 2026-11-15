@@ -40,6 +40,18 @@ describe('`createMinifierPool`', () => {
     }
   });
 
+  test('Rejects the job of a worker that exits, starting another for the next', async () => {
+    // Exits on its first job, as a worker might without an error
+    const fileWorker = new URL(`data:text/javascript,${encodeURIComponent("import { parentPort } from 'node:worker_threads'; parentPort.once('message', () => process.exit(3));")}`);
+    const pool = createMinifierPool({ size: 1, fileWorker });
+    try {
+      await assert.rejects(pool.minify('<p>a</p>', {}), /exited \(code 3\)/);
+      await assert.rejects(pool.minify('<p>a</p>', {}), /exited \(code 3\)/);
+    } finally {
+      await pool.close();
+    }
+  });
+
   test('Rejects what is still minifying when closed', async () => {
     const pool = createMinifierPool({ size: 1 });
     // The first goes to the worker right away, the second waits for it

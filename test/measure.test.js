@@ -1,6 +1,6 @@
 import { describe, test } from 'node:test';
 import assert from 'node:assert';
-import { addSizes, measure, sizeOf, sumSizes } from '../src/measure.js';
+import { measure, sizeOf, sumSizes } from '../src/measure.js';
 
 describe('`measure`', () => {
   test('Counts raw bytes as UTF-8', async () => {
@@ -24,11 +24,14 @@ describe('`measure`', () => {
   });
 });
 
-describe('`addSizes` and `sumSizes`', () => {
+describe('`sumSizes`', () => {
   test('Adds per metric', () => {
     const a = { raw: 10, gzip: 5, brotli: 4 };
     const b = { raw: 3, gzip: 2, brotli: 1 };
-    assert.deepStrictEqual(addSizes(a, b), { raw: 13, gzip: 7, brotli: 5 });
     assert.deepStrictEqual(sumSizes([a, b, a]), { raw: 23, gzip: 12, brotli: 9 });
+  });
+
+  test('Returns zero sizes for none', () => {
+    assert.deepStrictEqual(sumSizes([]), { raw: 0, gzip: 0, brotli: 0 });
   });
 });

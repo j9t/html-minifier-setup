@@ -3,6 +3,7 @@
 // used where an HTML Minifier checkout sits next to this one, never duplicated here
 
 import fs from 'node:fs';
+import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 /**
@@ -12,6 +13,8 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
  * @prop {(input: string, output: string, options: Record<string, unknown>) => string[]} compare Differences found, if any
  */
 
+// Installed, the sibling folder is HTML Minifier as dependency, not a checkout
+const INSTALLED = fileURLToPath(import.meta.url).split(path.sep).includes('node_modules');
 const FILE_COMPARE = fileURLToPath(new URL('../../html-minifier/test/equivalence/compare.js', import.meta.url));
 // Lists the options the check is run with
 const FILE_RUNNER = fileURLToPath(new URL('../../html-minifier/test/equivalence/runner.js', import.meta.url));
@@ -43,7 +46,7 @@ function versionOf(url) {
  * @returns {Promise<Equivalence | null>}
  */
 export async function loadEquivalence() {
-  if (!fs.existsSync(FILE_COMPARE) || !fs.existsSync(FILE_RUNNER)) return null;
+  if (INSTALLED || !fs.existsSync(FILE_COMPARE) || !fs.existsSync(FILE_RUNNER)) return null;
   const module = await Promise.all([import(pathToFileURL(FILE_RUNNER).href), import(pathToFileURL(FILE_COMPARE).href)])
     .then(([runner, compare]) => ({ ...runner, ...compare }))
     .catch(() => null);

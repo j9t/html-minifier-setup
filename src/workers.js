@@ -27,9 +27,9 @@ const minifyHere = (html, options) => minify(html, { ...options, log: () => {} }
 
 /**
  * Workers started as needed, up to `size`, which let the process exit while idle
- * @param {{size?: number}} [settings]
+ * @param {{size?: number, fileWorker?: URL}} [settings]
  */
-export function createMinifierPool({ size = SIZE_DEFAULT } = {}) {
+export function createMinifierPool({ size = SIZE_DEFAULT, fileWorker = FILE_WORKER } = {}) {
   /** @type {Slot[]} */
   const slots = [];
   /** @type {Job[]} */
@@ -42,10 +42,24 @@ export function createMinifierPool({ size = SIZE_DEFAULT } = {}) {
     pump();
   };
 
+  /**
+   * Takes a worker that failed or exited out of the pool, failing its job, so that others take over
+   * @param {Slot} slot
+   * @param {Error} err
+   */
+  const retire = (slot, err) => {
+    const index = slots.indexOf(slot);
+    if (index === -1) return;
+    slots.splice(index, 1);
+    slot.job?.reject(err);
+    slot.job = null;
+    pump();
+  };
+
   const spawn = () => {
     /** @type {Slot} */
     // Without the parent’s Node flags, some of which (e.g., `--input-type`) workers can’t take
-    const slot = { worker: new Worker(FILE_WORKER, { execArgv: [] }), job: null };
+    const slot = { worker: new Worker(fileWorker, { execArgv: [] }), job: null };
     slot.worker.unref();
     slot.worker.on('message', (/** @type {{output?: string, error?: string}} */ data) => {
       const { job } = slot;
@@ -56,14 +70,9 @@ export function createMinifierPool({ size = SIZE_DEFAULT } = {}) {
       }
       release(slot);
     });
-    // Where a worker fails as a whole (e.g., out of memory), its job fails and others take over
-    slot.worker.on('error', (/** @type {Error} */ err) => {
-      const index = slots.indexOf(slot);
-      if (index !== -1) slots.splice(index, 1);
-      slot.job?.reject(err);
-      slot.job = null;
-      pump();
-    });
+    // Fails as a whole, e.g., out of memory
+    slot.worker.on('error', (/** @type {Error} */ err) => retire(slot, err));
+    slot.worker.on('exit', (code) => retire(slot, new Error(`Minifier worker exited (code ${code})`)));
     slots.push(slot);
     return slot;
   };
