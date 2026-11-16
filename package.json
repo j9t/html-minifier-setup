@@ -33,12 +33,14 @@
   "funding": "https://github.com/j9t/html-minifier-setup?sponsor=1",
   "homepage": "https://github.com/j9t/html-minifier-setup",
   "keywords": [
+    "cli",
     "configuration",
     "html",
     "html-minifier",
     "minification",
     "minifier",
     "optimization",
+    "performance",
     "setup",
     "wizard"
   ],
