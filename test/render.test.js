@@ -116,7 +116,9 @@ describe('`createRenderer`', { skip: renderer ? false : `No browser: ${reason}` 
   });
 
   test('Rejects captures of pages that stop responding after loading, instead of waiting for them, and renders other pages', async () => {
-    const found = await createRenderer({ viewports: [{ width: 800, height: 600 }], timeout: 1000 });
+    // Closing the stopped page can take over a second (as on Windows in CI),
+    // which would count as the browser stopping
+    const found = await createRenderer({ viewports: [{ width: 800, height: 600 }], timeout: 3000 });
     const rendererHung = /** @type {import('../src/render.js').Renderer} */ (found.renderer);
     try {
       const html = '<!doctype html><p>a</p><script>addEventListener("load", () => setTimeout(() => { for (;;); }, 0))</script>';
@@ -202,6 +204,26 @@ describe('`createRenderer`', { skip: renderer ? false : `No browser: ${reason}` 
     }
   });
 
+  test('Ignores script errors that come and go between loads', async () => {
+    // Only the minified page loads the script, which fails on its first load alone
+    let loads = 0;
+    const server = http.createServer((request, response) => {
+      const isScript = request.url === '/flaky.js';
+      response.writeHead(200, { 'content-type': isScript ? 'text/javascript' : 'text/html' });
+      response.end(isScript && ++loads === 1 ? 'throw new Error("Now and then")' : '');
+    });
+    await new Promise((resolve) => server.listen(0, '127.0.0.1', () => resolve(undefined)));
+    try {
+      const { port } = /** @type {import('node:net').AddressInfo} */ (server.address());
+      const page = createPage({ id: 'f.html', html: '<!doctype html><p>a</p>', url: `http://127.0.0.1:${port}/f.html` });
+      const verdict = await r.compare(page, '<!doctype html><p>a<script src="flaky.js"></script>');
+      assert.deepStrictEqual(verdict.reasons, []);
+      assert.strictEqual(loads, 2);
+    } finally {
+      server.close();
+    }
+  });
+
   test('Ignores script errors the original has, too', async () => {
     const page = createPage({ id: 'c.html', html: '<!doctype html><p>a</p><script>nope()</script>' });
     const verdict = await r.compare(page, '<!doctype html><p>a</p><script>nope()</script>');
@@ -260,6 +282,12 @@ describe('`combineOriginals`', () => {
     assert.strictEqual(capture.text, 'a');
     assert.strictEqual(stableShot, true);
     assert.strictEqual(stableText, false);
+  });
+
+  test('Keeps script errors of either load of the original, as often as either had them', () => {
+    const first = { shot: Buffer.from('a'), text: 'a', errors: ['A', 'B', 'B'], blocked: [] };
+    const second = { shot: Buffer.from('a'), text: 'a', errors: ['B', 'C'], blocked: [] };
+    assert.deepStrictEqual(combineOriginals(first, second).capture.errors.sort(), ['A', 'B', 'B', 'C']);
   });
 });
 

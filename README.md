@@ -22,7 +22,9 @@ The render check, which catches most of what static checks can’t, uses Playwri
 
 Local pages are served to the browser from their directory. Symbolic links that lead outside it are followed only if you agree (or pass `--follow-links`), as a page’s scripts could send on what they lead to. Where nobody can answer, they aren’t followed.
 
-On a terminal, HTML Minifier Setup then offers to save the recommended configuration (as html-minifier.config.json, in the project of the pages evaluated or a directory of your choice) and, where it isn’t installed yet, to install HTML Minifier there (with the package manager the project uses), or to update it where a newer version is out. All offers default to no. Where one of HTML Minifier’s presets with a few changes has the same effect, it also offers to save the configuration that way—shorter, and following changes to the preset.
+Where no option fits, HTML Minifier Setup says why. On pages that are already minified, it then shows the configuration matching them, by the options in effect already (see below)—useful when switching from another minifier.
+
+On a terminal, HTML Minifier Setup offers to save the recommended configuration (or else the one matching the pages; as html-minifier.config.json, in the project of the pages evaluated or a directory of your choice) and, where it isn’t installed yet, to install HTML Minifier there (with the package manager the project uses), or to update it where a newer version is out. All offers default to no. Where one of HTML Minifier’s presets with a few changes has the same effect, it also offers to save the configuration that way—shorter, and following changes to the preset.
 
 ```shell
 # Evaluate a build directory and write the configuration to html-minifier.config.json
@@ -35,7 +37,7 @@ npx html-minifier --input-dir ./dist --output-dir ./dist
 | Option | Description |
 | --- | --- |
 | `-c, --config-file <file>` | Start from an HTML Minifier configuration (JSON or module; defaults to html-minifier.config.json in the working directory, if present): Options on how input is read (e.g., `ignoreCustomFragments`, `caseSensitive`, `continueOnParseError`) are carried over; values for candidates (e.g., `minifyJS: {"engine": "swc"}`) are evaluated instead of `true`; and `fileExt`, `ignoreDir`, and cache sizes are kept, with `fileExt` and `ignoreDir` also applying to directories read |
-| `-o, --output [file]` | Write the configuration to a file (default: html-minifier.config.json) rather than print it |
+| `-o, --output [file]` | Write the configuration to a file (default: html-minifier.config.json) rather than print it, writing none where no option fits |
 | `-m, --metric <metric>` | Size that decides whether an option gains: `raw`, `gzip` (default), or `brotli`, compressed at Gzip level 6 and Brotli quality 6, common defaults for on-the-fly compression (as in HTML Minifier’s benchmarks) |
 | `-s, --sample <count>` | Pages to evaluate at most (default: 20) |
 | `--file-ext <list>` | File extensions to read in directories, `*` for all files (default: `html,htm,shtml,shtm`, as HTML Minifier, or the configuration’s `fileExt`) |
@@ -56,8 +58,8 @@ HTML Minifier Setup is meant to be run, not installed: It has no programmatic AP
 
 ## How it works
 
-1. **Each option on its own:** Every candidate option is run on every page and measured against output without it. Options that change nothing (“no effect”), or don’t save anything by the chosen metric (“no gain”), are left out. What an option changes is then checked against what the page relies on (see below).
-2. **All recommended options together, rendered:** Pages are rendered as written and as minified, in Chromium (or Chrome or Edge) at each viewport, and compared by screenshot, text, and script errors. Where rendering differs, options are rendered on their own to find the culprit; where none breaks rendering on its own, options are added by savings until rendering holds.
+1. **Each option on its own:** Every candidate option is run on every page and measured against output without it. Options that change nothing (“no effect,” or “in effect already” where the page has what they act on in the form they produce), or don’t save anything by the chosen metric (“no gain”), are left out. What an option changes is then checked against what the page relies on (see below).
+2. **All recommended options together, rendered:** Pages are rendered as written (twice, to tell what differs between loads) and as minified, in Chromium (or Chrome or Edge) at each viewport, and compared by screenshot, text, and script errors; new script errors are confirmed by loading the minified page again, as some (e.g., of embeds) come and go. Where rendering differs, options are rendered on their own to find the culprit; where none breaks rendering on its own, options are added by savings until rendering holds.
 3. **Contributions:** Each option’s share of the final savings is measured by leaving it out. Options that save nothing alongside the others are dropped.
 4. **Presets:** HTML Minifier’s presets (`conservative` and `comprehensive`) are measured and rendered on the same pages, naming options they include that don’t fit, to show what the recommended configuration gains over them.
 
@@ -72,7 +74,9 @@ Where full whitespace collapsing breaks a page, HTML Minifier Setup falls back t
 | Static | What scripts and style sheets of the page (including linked local or same-origin ones) rely on: comments that frameworks read (e.g., Knockout, Lit, hydration markers), empty elements scripts fill, classes scripts add after `removeUnusedCSS` removed their rules, attributes that style sheets or scripts select on, and CSS that keeps whitespace | Nothing |
 | Render | Anything that changes what the page looks like on load, or adds script errors | Chromium, Chrome, or Edge |
 
-In the report, options are _recommended_, _kept_ (as asked), or not used because they _don’t fit_ these pages, have _no gain_ by the chosen metric, have _no effect_, or were _skipped_. With `--json`, statuses are `accepted`, `kept`, `rejected`, `no-gain`, `no-effect`, and `skipped`.
+In the report, options are _recommended_, _kept_ (as asked), or not used because they _don’t fit_ these pages, are _in effect already_, have _no gain_ by the chosen metric, have _no effect_, or were _skipped_. With `--json`, statuses are `accepted`, `kept`, `rejected`, `in-effect`, `no-gain`, `no-effect`, and `skipped`.
+
+Options _in effect already_ change nothing, but the pages have what they act on, all in the form they produce (e.g., attribute values without quotes, for `removeAttributeQuotes`). As they change nothing, the checks can’t vouch for them; they make up the configuration matching the pages, which is to be checked on pages before minification. Options that remove things (e.g., `removeComments`) leave no such traces, as what’s missing may never have been there.
 
 Options flagged by the static check as a _risk_ don’t fit and aren’t recommended. Options flagged for a _check_ (e.g., whitespace collapsing where CSS keeps whitespace) are recommended unless they render differently—without a render check, they’re rejected. Where the render check can’t tell (e.g., on pages that look different between loads or with options kept), the report says so. _Notes_ don’t reject.
 
@@ -87,7 +91,7 @@ The checks can show that options change pages, not that they never will:
 * Rendering must match pixel for pixel, so lossy changes (e.g., SVG coordinates rounded by `minifySVG`) count as differences.
 * Pages that options kept with `--keep` make look different can’t show whether other options do, too.
 * A page sample may miss templates the rest of the site uses—for sites with many different templates, raise `--sample`.
-* Options that have no effect can’t be judged: On pages that are minified already, most options are left out, as there’s nothing left for them to do. Run HTML Minifier Setup on pages before minification instead.
+* Options that change nothing can’t be judged: On pages that are minified already, most options are left out, as there’s nothing left for them to do, and the configuration matching them is inferred, not checked. Run HTML Minifier Setup on pages before minification instead.
 
 Test the configuration on your site before deploying it.
 

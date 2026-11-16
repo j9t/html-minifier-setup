@@ -6,13 +6,13 @@ import readline from 'node:readline/promises';
 import { pathToFileURL } from 'node:url';
 import { Command, Option } from 'commander';
 import { checkCandidates, splitConfig } from './src/catalog.js';
-import { paint, supportsColor } from './src/color.js';
+import { supportsColor } from './src/color.js';
 import { loadEquivalence } from './src/equivalence.js';
 import { METRICS } from './src/measure.js';
 import { EXTENSIONS_DEFAULT, findOutsideLinks, loadPages } from './src/pages.js';
 import { createProgress } from './src/progress.js';
 import { CONCURRENCY_DEFAULT, createRenderer, installChromium, VIEWPORTS_DEFAULT } from './src/render.js';
-import { formatReport, toConfig, toPresetConfig } from './src/report.js';
+import { formatConfiguration, formatReport, hasRecommendation, toConfig, toMatchingConfig, toPresetConfig } from './src/report.js';
 import { customize } from './src/select.js';
 import { CONFIG_FILE as CONFIG_FILE_DEFAULT, fetchLatestVersion, isYes, offerSetup, projectOf } from './src/setup.js';
 
@@ -144,15 +144,23 @@ const program = new Command()
       }
       const color = supportsColor(process.stdout);
       console.log(formatReport(result, { renderReason: reason, color, verbose: settings.verbose }));
-      const config = toConfig(result, preserved);
+      const recommended = hasRecommendation(result);
       if (settings.output) {
         const fileOutput = settings.output === true ? CONFIG_FILE_DEFAULT : settings.output;
-        await fs.promises.writeFile(fileOutput, `${JSON.stringify(config, null, 2)}\n`);
+        if (!recommended) {
+          console.log(`\nNo configuration to recommend, so ${fileOutput} wasn’t written`);
+          return;
+        }
+        await fs.promises.writeFile(fileOutput, `${JSON.stringify(toConfig(result, preserved), null, 2)}\n`);
         console.log(`\nWrote ${fileOutput}`);
         return;
       }
-      console.log(`\n${paint('bold', 'Recommended configuration:', color)}\n${JSON.stringify(config, null, 2)}\n`);
-      if (interactive) await promptSetup(config, toPresetConfig(result, preserved), latest, projectOf(inputs, process.cwd()));
+      console.log(`\n${formatConfiguration(result, { preserved, color })}\n`);
+      if (interactive) {
+        // Where nothing is recommended, the configuration matching the pages, if any, is offered
+        const config = recommended ? toConfig(result, preserved) : toMatchingConfig(result, preserved);
+        await promptSetup(config, !recommended, recommended ? toPresetConfig(result, preserved) : null, latest, projectOf(inputs, process.cwd()));
+      }
     } finally {
       await renderer?.close();
     }
@@ -176,13 +184,14 @@ async function confirmLinks(pages, ignore) {
 
 /**
  * Asks on the terminal whether to save the configuration and install HTML Minifier
- * @param {Record<string, unknown>} config
+ * @param {Record<string, unknown> | null} config
+ * @param {boolean} matching Whether the configuration is the one matching the pages
  * @param {ReturnType<typeof toPresetConfig>} configPreset
  * @param {Promise<string | null> | null} latest
  * @param {string} dirProject
  */
-async function promptSetup(config, configPreset, latest, dirProject) {
-  await withPrompt((ask) => offerSetup({ config, configPreset, latest, dirProject, cwd: process.cwd(), ask, log: (message) => console.log(message) }));
+async function promptSetup(config, matching, configPreset, latest, dirProject) {
+  await withPrompt((ask) => offerSetup({ config, matching, configPreset, latest, dirProject, cwd: process.cwd(), ask, log: (message) => console.log(message) }));
 }
 
 /**

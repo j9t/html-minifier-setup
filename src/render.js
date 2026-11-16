@@ -166,13 +166,28 @@ function firstDifference(a, b) {
 }
 
 /**
- * The original’s two captures as one, with what stayed the same between loads and every file
- * either load didn’t get
+ * Errors of the second list beyond those in the first, as often as they occur beyond
+ * @param {string[]} known
+ * @param {string[]} errors
+ */
+const errorsBeyond = (known, errors) => {
+  const left = [...known];
+  return errors.filter((error) => {
+    const index = left.indexOf(error);
+    if (index === -1) return true;
+    left.splice(index, 1);
+    return false;
+  });
+};
+
+/**
+ * The original’s two captures as one, with what stayed the same between loads, every file either
+ * load didn’t get, and every script error either load had
  * @param {Capture} first
  * @param {Capture} second
  */
 export const combineOriginals = (first, second) => ({
-  capture: { ...first, blocked: [...new Set([...first.blocked, ...second.blocked])] },
+  capture: { ...first, errors: [...first.errors, ...errorsBeyond(first.errors, second.errors)], blocked: [...new Set([...first.blocked, ...second.blocked])] },
   stableShot: first.shot.equals(second.shot),
   stableText: first.text === second.text
 });
@@ -390,15 +405,13 @@ export async function createRenderer({ viewports = VIEWPORTS_DEFAULT, timeout = 
       if (stableText && before.text !== after.text) {
         reasons.push(`Text differs at ${at}: ${firstDifference(before.text, after.text)}`);
       }
-      const known = [...before.errors];
-      for (const error of after.errors) {
-        const index = known.indexOf(error);
-        if (index === -1) {
-          reasons.push(`New script error at ${at}: ${error.split('\n')[0]?.slice(0, 120)}`);
-        } else {
-          known.splice(index, 1);
-        }
+      let errorsNew = errorsBeyond(before.errors, after.errors);
+      // Confirmed by another load, as errors can come and go between loads (e.g., of embeds)
+      if (errorsNew.length) {
+        const errorsAgain = errorsBeyond(before.errors, (await capture(page, html, viewport)).errors);
+        errorsNew = errorsNew.filter((error) => errorsAgain.includes(error));
       }
+      for (const error of errorsNew) reasons.push(`New script error at ${at}: ${error.split('\n')[0]?.slice(0, 120)}`);
       return { reasons, notes, blind, blocked: [...before.blocked, ...after.blocked] };
     }));
     const reasons = [...new Set(results.flatMap((result) => result.reasons))];

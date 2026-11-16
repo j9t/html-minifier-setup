@@ -165,6 +165,23 @@ describe('`offerSetup`', () => {
     });
   });
 
+  test('Offers no configuration to save where there’s none', async () => {
+    await inDir({}, async (dir) => {
+      const { ask, questions } = scripted([]);
+      await offerSetup({ config: null, cwd: dir, ask, install: fakeInstall().install, log() {} });
+      assert.deepStrictEqual(questions.map((question) => question.split('?')[0]), ['Install HTML Minifier']);
+    });
+  });
+
+  test('Names the configuration to save as matching the pages, where it is', async () => {
+    await inDir({}, async (dir) => {
+      const { ask, questions } = scripted(['y', '', 'n']);
+      await offerSetup({ config: CONFIG, matching: true, cwd: dir, ask, install: fakeInstall().install, log() {} });
+      assert.strictEqual(questions[0], 'Save configuration file matching these pages? (y/N) ');
+      assert.ok(fs.existsSync(path.join(dir, 'html-minifier.config.json')));
+    });
+  });
+
   test('Saves the configuration to the current directory by default', async () => {
     await inDir({}, async (dir) => {
       const { ask } = scripted(['y', '', 'n']);

@@ -1,6 +1,6 @@
 import { describe, test } from 'node:test';
 import assert from 'node:assert';
-import { formatReport, toPresetConfig } from '../src/report.js';
+import { formatConfiguration, formatReport, hasRecommendation, toMatchingConfig, toPresetConfig } from '../src/report.js';
 import { MESSAGE_RENDERS_SAME } from '../src/select.js';
 
 const ESC = '\u001b';
@@ -63,7 +63,7 @@ describe('`formatReport`', () => {
 
   test('Points out pages that look minified already, by whitespace collapsing saving next to nothing', () => {
     const noEffect = formatReport(resultOf(SIZES, [{ name: 'collapseWhitespace', status: 'no-effect' }, { status: 'no-effect' }, { status: 'accepted' }]));
-    assert.match(noEffect, /look minified already: Collapsing whitespace saves less than 1%, and 2 of 3 options have no effect/);
+    assert.match(noEffect, /look minified already: Collapsing whitespace saves less than 1%, and 2 of 3 options change nothing/);
     const little = formatReport(resultOf(SIZES, [{ name: 'collapseWhitespace', status: 'no-gain', savings: 2 }]));
     assert.match(little, /look minified already/);
   });
@@ -170,6 +170,87 @@ describe('`formatReport` statuses', () => {
     assert.match(report, /recommended/);
     assert.doesNotMatch(report, /no-effect|no-gain|accepted/);
     assert.match(formatReport(resultOf(SIZES, [{ status: 'rejected' }])), /doesn’t fit/);
+    assert.match(formatReport(resultOf(SIZES, [{ status: 'in-effect' }])), /in effect already/);
+  });
+
+  test('Counts options in effect already among those without effect where pages look minified', () => {
+    const report = formatReport(resultOf(SIZES, [{ name: 'collapseWhitespace', status: 'in-effect' }, { status: 'no-effect' }, { status: 'accepted' }]));
+    assert.match(report, /look minified already: Collapsing whitespace saves less than 1%, and 2 of 3 options change nothing/);
+  });
+
+  test('Asks to test the configuration on the site only where there’s one', () => {
+    assert.match(formatReport(resultOf(SIZES, [{ status: 'accepted' }])), /not that they never will—test the configuration on your site\.$/);
+    assert.match(formatReport(resultOf(SIZES, [{ status: 'no-effect' }])), /not that they never will\.$/);
+  });
+
+  test('Leaves options in effect already out of details', () => {
+    const report = formatReport(resultOf(SIZES, [{ name: 'removeAttributeQuotes', status: 'in-effect', reasons: [{ level: 'info', page: 'index.html', message: 'What it acts on is in the form it produces already' }] }]));
+    assert.doesNotMatch(report, /Details:/);
+  });
+});
+
+describe('`formatConfiguration`', () => {
+  const SCHEMA = '"$schema": "https://raw.githubusercontent.com/j9t/html-minifier/main/html-minifier.schema.json"';
+
+  test('Prints the recommended configuration', () => {
+    const result = resultOf(SIZES, [{ name: 'removeComments', options: { removeComments: true } }]);
+    result.options = { removeComments: true };
+    const text = formatConfiguration(result);
+    assert.match(text, /^Recommended configuration:\n\{\n {2}"\$schema": .*,\n {2}"removeComments": true\n\}$/);
+    assert.doesNotMatch(text, /in effect already/);
+  });
+
+  test('Names options in effect already alongside the recommended configuration', () => {
+    const result = resultOf(SIZES, [{ name: 'removeComments', options: { removeComments: true } }, { name: 'useShortDoctype', status: 'in-effect', options: { useShortDoctype: true } }, { name: 'minifyCSS', status: 'in-effect', options: { minifyCSS: true } }]);
+    result.options = { removeComments: true };
+    const text = formatConfiguration(result);
+    assert.match(text, /^Recommended configuration:\n/);
+    assert.match(text, /\n\nThese pages have `minifyCSS` and `useShortDoctype` in effect already\. To keep them so \(e\.g\., when switching from another minifier\), add them—as they change nothing here, the checks can’t vouch for them, so check them on pages before minification\.$/);
+  });
+
+  test('Says there’s no configuration to recommend instead of printing one without options', () => {
+    const result = resultOf(SIZES, [{ name: 'collapseWhitespace', status: 'rejected', savings: 40 }]);
+    result.options = { caseSensitive: true };
+    const text = formatConfiguration(result, { preserved: { fileExt: 'html' } });
+    assert.strictEqual(text, 'No configuration to recommend: The options that save something don’t fit these pages.');
+  });
+
+  test('Explains why there’s no configuration to recommend', () => {
+    assert.strictEqual(formatConfiguration(resultOf(SIZES, [{ status: 'no-gain' }])), 'No configuration to recommend: No option saves anything on these pages with Gzip.');
+    assert.match(formatConfiguration(resultOf(SIZES, [{ name: 'collapseWhitespace', status: 'no-effect' }, { status: 'no-effect' }])), /^No configuration to recommend: These pages look minified already\.$/);
+  });
+
+  test('Offers the configuration matching pages that look minified, where nothing is recommended', () => {
+    const result = resultOf(SIZES, [{ name: 'collapseWhitespace', status: 'in-effect', options: { collapseWhitespace: true } }, { name: 'removeAttributeQuotes', status: 'in-effect', options: { removeAttributeQuotes: true } }, { status: 'no-effect' }]);
+    result.options = { caseSensitive: true };
+    const text = formatConfiguration(result, { preserved: { fileExt: 'html' } });
+    assert.ok(text.startsWith('No configuration to recommend: These pages look minified already.\n\nConfiguration matching these pages, by the options in effect already (as they change nothing here, the checks can’t vouch for them—check it on pages before minification):\n{\n'), text);
+    assert.ok(text.includes(SCHEMA));
+    assert.match(text, /"caseSensitive": true,\n {2}"collapseWhitespace": true,\n {2}"fileExt": "html",\n {2}"removeAttributeQuotes": true\n\}$/);
+  });
+
+  test('Marks headings in bold, where colored', () => {
+    const result = resultOf(SIZES, [{ name: 'removeComments', options: { removeComments: true } }]);
+    result.options = { removeComments: true };
+    assert.ok(formatConfiguration(result, { color: true }).startsWith(`${ESC}[1mRecommended configuration:`));
+  });
+});
+
+describe('`toMatchingConfig`', () => {
+  test('Adds the options in effect already to the recommended ones, or returns nothing where there are none', () => {
+    const result = resultOf(SIZES, [{ name: 'removeComments', options: { removeComments: true } }, { name: 'useShortDoctype', status: 'in-effect', options: { useShortDoctype: true } }]);
+    result.options = { removeComments: true };
+    assert.deepStrictEqual(Object.keys(toMatchingConfig(result) ?? {}), ['$schema', 'removeComments', 'useShortDoctype']);
+    assert.strictEqual(toMatchingConfig(resultOf(SIZES, [{ status: 'no-effect' }])), null);
+  });
+});
+
+describe('`hasRecommendation`', () => {
+  test('Tells whether any option is recommended or kept, not counting carried options', () => {
+    const result = resultOf(SIZES, [{ status: 'no-effect' }]);
+    result.options = { caseSensitive: true };
+    assert.strictEqual(hasRecommendation(result), false);
+    assert.strictEqual(hasRecommendation(resultOf(SIZES, [{ status: 'kept' }])), true);
   });
 });
 
