@@ -7,7 +7,7 @@
   "bugs": "https://github.com/j9t/html-minifier-setup/issues",
   "dependencies": {
     "commander": "^15.1.0",
-    "html-minifier": "^5.1.0",
+    "html-minifier": "^5.2.0",
     "lightningcss": "^1.33.0",
     "parse5": "^8.1.1",
     "playwright": "^1.65.1"
@@ -57,5 +57,5 @@
     "test:watch": "node --test --test-timeout=60000 --watch \"test/**/*.test.js\""
   },
   "type": "module",
-  "version": "0.4.0"
+  "version": "0.5.0"
 }

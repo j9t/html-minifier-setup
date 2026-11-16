@@ -49,6 +49,19 @@ describe('`customize`', () => {
     assert.ok(result.final.gzip < result.baseline.gzip);
   });
 
+  test('Tells options in effect already from those with nothing to act on, recommending neither', async () => {
+    const page = createPage({ id: 'minified.html', html: '<!doctype html><p class=a title="b c">Text<input disabled>', resources: {} });
+    const result = await customize([page]);
+    for (const name of ['collapseBooleanAttributes', 'removeAttributeQuotes', 'useShortDoctype']) {
+      const found = evaluation(result, name);
+      assert.strictEqual(found.status, 'in-effect', name);
+      assert.match(found.reasons[0]?.message ?? '', /in the form it produces already/, name);
+      assert.ok(!(name in result.options), name);
+    }
+    assert.strictEqual(evaluation(result, 'minifySVG').status, 'no-effect');
+    assert.strictEqual(evaluation(result, 'removeComments').status, 'no-effect');
+  });
+
   test('Attributes savings to each accepted option', async () => {
     const result = await customize(pageHome);
     const collapse = evaluation(result, 'collapseWhitespace');
@@ -60,7 +73,7 @@ describe('`customize`', () => {
   test('Evaluates options together with what they need where that saves nothing alone', async () => {
     const page = createPage({ id: 'minified.html', html: '<style>.a{color:red}.unused{color:#00f}</style><p class=a>x</p>', resources: {} });
     const result = await customize([page]);
-    assert.strictEqual(evaluation(result, 'minifyCSS').status, 'no-effect');
+    assert.strictEqual(evaluation(result, 'minifyCSS').status, 'in-effect');
     const unused = evaluation(result, 'removeUnusedCSS');
     assert.strictEqual(unused.status, 'accepted');
     assert.ok(unused.savings > 0);

@@ -71,10 +71,12 @@ const OPTIONS_WHITESPACE = new Set(['collapseInlineTagWhitespace', 'collapseNoBr
 const clip = (text, length = 60) => text.length > length ? `${text.slice(0, length - 1)}…` : text;
 
 /**
+ * Visits a parse5 node and all nodes within it, depth first, including the contents
+ * of `template` elements
  * @param {Node} node
  * @param {(node: Node) => void} visit
  */
-function walk(node, visit) {
+export function walk(node, visit) {
   visit(node);
   const content = /** @type {{content?: Node}} */ (node).content;
   for (const child of [...('childNodes' in node ? node.childNodes : []), ...(content ? [content] : [])]) {

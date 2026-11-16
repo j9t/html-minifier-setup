@@ -202,6 +202,25 @@ describe('`createRenderer`', { skip: renderer ? false : `No browser: ${reason}` 
     }
   });
 
+  test('Ignores script errors that come and go between loads', async () => {
+    // Fails on one load of the script, whichever that is
+    let loads = 0;
+    const server = http.createServer((request, response) => {
+      response.writeHead(200, { 'content-type': request.url === '/flaky.js' ? 'text/javascript' : 'text/html' });
+      response.end(request.url === '/flaky.js' && ++loads === 3 ? 'throw new Error("Now and then")' : '');
+    });
+    await new Promise((resolve) => server.listen(0, '127.0.0.1', () => resolve(undefined)));
+    try {
+      const { port } = /** @type {import('node:net').AddressInfo} */ (server.address());
+      const page = createPage({ id: 'f.html', html: '<!doctype html><p>a</p><script src="flaky.js"></script>', url: `http://127.0.0.1:${port}/f.html` });
+      const verdict = await r.compare(page, page.html.replace('<p>a</p>', '<p>a'));
+      assert.deepStrictEqual(verdict.reasons, []);
+      assert.ok(loads >= 3, `${loads} loads`);
+    } finally {
+      server.close();
+    }
+  });
+
   test('Ignores script errors the original has, too', async () => {
     const page = createPage({ id: 'c.html', html: '<!doctype html><p>a</p><script>nope()</script>' });
     const verdict = await r.compare(page, '<!doctype html><p>a</p><script>nope()</script>');
@@ -260,6 +279,12 @@ describe('`combineOriginals`', () => {
     assert.strictEqual(capture.text, 'a');
     assert.strictEqual(stableShot, true);
     assert.strictEqual(stableText, false);
+  });
+
+  test('Keeps script errors of either load of the original, as often as either had them', () => {
+    const first = { shot: Buffer.from('a'), text: 'a', errors: ['A', 'B', 'B'], blocked: [] };
+    const second = { shot: Buffer.from('a'), text: 'a', errors: ['B', 'C'], blocked: [] };
+    assert.deepStrictEqual(combineOriginals(first, second).capture.errors.sort(), ['A', 'B', 'B', 'C']);
   });
 });
 

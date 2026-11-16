@@ -6,6 +6,7 @@ import { presets as PRESETS } from 'html-minifier';
 import { CANDIDATES, checkCandidates, FALLBACKS, readSchema, unclassified } from './catalog.js';
 import { analyzePage, findHazards } from './hazards.js';
 import { byMetric, sizeOf, sumSizes } from './measure.js';
+import { tracesOf } from './traces.js';
 import { minifyInWorkers } from './workers.js';
 
 /**
@@ -19,7 +20,7 @@ import { minifyInWorkers } from './workers.js';
  * @typedef {object} Evaluation
  * @prop {string} name
  * @prop {Record<string, unknown>} options
- * @prop {'accepted' | 'kept' | 'rejected' | 'no-gain' | 'no-effect' | 'skipped'} status
+ * @prop {'accepted' | 'kept' | 'rejected' | 'in-effect' | 'no-gain' | 'no-effect' | 'skipped'} status
  * @prop {string} [variant] Fallback in use, if any
  * @prop {number} savings Bytes saved on its own (on top of what it requires, or with it where that saves nothing alone), by the metric
  * @prop {number} [contribution] Bytes the final configuration would lose without it, by the metric
@@ -74,6 +75,7 @@ import { minifyInWorkers } from './workers.js';
 const MAX_RENDER_ROUNDS = 12;
 const MAX_REASONS_PER_PAGE = 2;
 export const MESSAGE_RENDERS_SAME = 'Looks the same where checks were needed';
+const MESSAGE_IN_EFFECT = 'What it acts on is in the form it produces already; as it changes nothing, checks can’t vouch for it';
 
 // Lets timers run, such as a progress indicator’s, between stretches of synchronous work
 const yieldTurn = () => new Promise((resolve) => setImmediate(resolve));
@@ -176,6 +178,17 @@ export async function customize(pagesGiven, settings = {}) {
   if (!pages.length) throw new Error(`The minifier can read none of the pages (${[...notes].join('; ')})—\`continueOnParseError\` in a starting configuration may help`);
 
   const contexts = new Map(await Promise.all(pages.map(async (page) => /** @type {const} */ ([page, await analyzePage(page)]))));
+  /** @type {Map<import('./pages.js').Page, Set<string>>} */
+  const traces = new Map();
+  /** @param {import('./pages.js').Page} page */
+  const tracesCached = (page) => {
+    let found = traces.get(page);
+    if (!found) {
+      found = tracesOf(page.html);
+      traces.set(page, found);
+    }
+    return found;
+  };
 
   /** @type {Map<string, Evaluation>} */
   const evaluations = new Map();
@@ -268,7 +281,12 @@ export async function customize(pagesGiven, settings = {}) {
 
     if (reasons.some((reason) => reason.level === 'error')) return { status: 'rejected', savings, reasons };
     if (keep.includes(name)) return { status: 'kept', savings, reasons };
-    if (!changed) return { status: 'no-effect', savings, reasons: [{ level: 'info', message: 'No effect on these pages' }] };
+    if (!changed) {
+      const traced = pages.filter((page) => tracesCached(page).has(name));
+      return traced.length
+        ? { status: 'in-effect', savings, reasons: traced.map((page) => ({ level: 'info', page: page.id, message: MESSAGE_IN_EFFECT })) }
+        : { status: 'no-effect', savings, reasons: [{ level: 'info', message: 'No effect on these pages' }] };
+    }
     if (savings <= 0) return { status: 'no-gain', savings, reasons: [{ level: 'info', message: `Saves nothing ${byMetric(metric)}` }, ...reasons] };
     return { status: isBlocking(reasons) ? 'rejected' : 'accepted', savings, reasons };
   }
@@ -291,7 +309,7 @@ export async function customize(pagesGiven, settings = {}) {
         evaluation.reasons.push({ level: 'info', message: `Falls back to \`${variant}\`` }, ...outcome.reasons.filter((reason) => !known.has(`${reason.level}${reason.page}${reason.message}`)));
         return;
       }
-      evaluation.reasons.push({ level: 'info', message: `Fallback \`${variant}\` ${outcome.status === 'no-gain' || outcome.status === 'no-effect' ? 'saves nothing' : 'doesn’t fit, either'}` });
+      evaluation.reasons.push({ level: 'info', message: `Fallback \`${variant}\` ${['in-effect', 'no-gain', 'no-effect'].includes(outcome.status) ? 'saves nothing' : 'doesn’t fit, either'}` });
     }
     evaluation.status = 'rejected';
     dropDependents(evaluation);
@@ -318,7 +336,7 @@ export async function customize(pagesGiven, settings = {}) {
     const own = candidate.name in values ? { [candidate.name]: values[candidate.name] } : candidate.options;
     const requirement = candidate.requires ? evaluations.get(candidate.requires) : undefined;
     // A requirement that is safe but saves nothing alone may still pay off along with what needs it
-    const paired = requirement && (requirement.status === 'no-gain' || requirement.status === 'no-effect') && !isBlocking(requirement.reasons);
+    const paired = requirement && ['in-effect', 'no-gain', 'no-effect'].includes(requirement.status) && !isBlocking(requirement.reasons);
     const options = paired ? { ...requirement.options, ...own } : own;
     /** @type {Evaluation} */
     const evaluation = { name: candidate.name, options, status: 'skipped', savings: 0, reasons: [] };

@@ -170,15 +170,15 @@ export const isYes = (answer) => /^\s*y(?:es)?\s*$/i.test(answer);
 const describeDir = (dir, cwd) => dir === cwd ? 'current directory' : path.relative(cwd, dir) || '.';
 
 /**
- * @param {{config: Record<string, unknown>, dirProject?: string, configPreset?: {name: string, changes: string[], config: Record<string, unknown>} | null, cwd: string, ask: (question: string) => Promise<string>, install?: (dir: string, manager: PackageManager) => Promise<boolean>, latest?: Promise<string | null> | null, log: (message: string) => void}} settings
+ * @param {{config: Record<string, unknown> | null, matching?: boolean, dirProject?: string, configPreset?: {name: string, changes: string[], config: Record<string, unknown>} | null, cwd: string, ask: (question: string) => Promise<string>, install?: (dir: string, manager: PackageManager) => Promise<boolean>, latest?: Promise<string | null> | null, log: (message: string) => void}} settings
  * @returns {Promise<{fileConfig: string | null, installed: boolean}>}
  */
-export async function offerSetup({ config, dirProject, configPreset = null, cwd, ask, install = installPackage, latest = null, log }) {
+export async function offerSetup({ config, matching = false, dirProject, configPreset = null, cwd, ask, install = installPackage, latest = null, log }) {
   /** @type {string | null} */
   let fileConfig = null;
   let dirTarget = dirProject ?? cwd;
 
-  if (isYes(await ask('Save configuration file? (y/N) '))) {
+  if (config && isYes(await ask(`Save configuration file${matching ? ' matching these pages' : ''}? (y/N) `))) {
     dirTarget = path.resolve(cwd, (await ask(`Directory (${describeDir(dirTarget, cwd)}): `)).trim() || dirTarget);
     const file = path.join(dirTarget, CONFIG_FILE);
     if (!fs.existsSync(file) || isYes(await ask(`Overwrite ${path.relative(cwd, file)}? (y/N) `))) {

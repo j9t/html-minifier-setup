@@ -43,6 +43,7 @@ async function inDir(files, fn) {
 
 const PAGE = '<!DOCTYPE html>\n<html>\n\t<body>\n\t\t<!-- Note -->\n\t\t<p class="a">Text</p>\n\t</body>\n</html>';
 const FLAGS = ['--no-render', '--no-equivalence'];
+const PAGE_MINIFIED = '<!doctype html><title>Page</title><p class=a>Text “quoted” and more text<input disabled>';
 
 describe('CLI', () => {
   test('Prints a report and the configuration', async () => {
@@ -74,6 +75,26 @@ describe('CLI', () => {
     } finally {
       await fs.promises.rm(dir, { recursive: true, force: true });
     }
+  });
+
+  test('Says there’s no configuration to recommend for pages that look minified, offering the one matching them', async () => {
+    await inDir({ 'index.html': PAGE_MINIFIED }, async (dir) => {
+      const { code, stdout, stderr } = await run(['index.html', ...FLAGS, '--no-presets'], dir);
+      assert.strictEqual(code, 0, stderr);
+      assert.doesNotMatch(stdout, /Recommended configuration:/);
+      assert.match(stdout, /No configuration to recommend: These pages look minified already\./);
+      assert.match(stdout, /Configuration matching these pages, by the options in effect already .*:\n\{\n {2}"\$schema": .*\n(?: {2}".*\n)* {2}"removeAttributeQuotes": true/);
+      assert.doesNotMatch(stdout, /test the configuration on your site/);
+    });
+  });
+
+  test('Writes no file where there’s no configuration to recommend', async () => {
+    await inDir({ 'index.html': PAGE_MINIFIED }, async (dir) => {
+      const { code, stdout, stderr } = await run(['index.html', ...FLAGS, '--no-presets', '-o'], dir);
+      assert.strictEqual(code, 0, stderr);
+      assert.match(stdout, /No configuration to recommend, so html-minifier\.config\.json wasn’t written/);
+      assert.ok(!fs.existsSync(path.join(dir, 'html-minifier.config.json')));
+    });
   });
 
   test('Prints the full result as JSON', async () => {

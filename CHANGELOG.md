@@ -4,6 +4,23 @@ All notable changes to HTML Minifier Setup (HMS) are documented in this file, wh
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] - 2026-11-16
+
+### Fixed
+
+* Stopped recommending a configuration without options (only `$schema`): The report now says why no option fits, `-o` writes no file, and no configuration is offered to save
+* Stopped script errors that come and go between loads (e.g., of YouTube embeds) from rejecting options at random: New script errors now need to show on a second load of the minified page, and errors of either load of the original are known
+* Evaluated options together with what they need where that is in effect already, as where it has no effect
+
+### Added
+
+* Told options in effect already from options with nothing to act on: Where an option changes nothing but the pages have what it acts on, all in the form it produces (e.g., unquoted attribute values for `removeAttributeQuotes`), it’s reported as already in effect (`in-effect` with `--json`)
+* Showed the configuration matching pages that are minified already, by the options in effect already, where no option is recommended—useful when switching from another minifier, and offered to save it
+
+### Changed
+
+* **BREAKING:** Options that changed nothing were all `no-effect` with `--json`; those whose work the pages show done are now `in-effect`
+
 ## [0.4.0] - 2026-11-15
 
 ### Fixed

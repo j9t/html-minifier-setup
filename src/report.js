@@ -1,7 +1,7 @@
 import { presets as PRESETS } from 'html-minifier';
 import { VISIBLE_BY_DESIGN } from './catalog.js';
 import { paint } from './color.js';
-import { METRICS, NAMES_METRIC } from './measure.js';
+import { byMetric, METRICS, NAMES_METRIC } from './measure.js';
 import { MESSAGE_RENDERS_SAME } from './select.js';
 
 const URL_SCHEMA = 'https://raw.githubusercontent.com/j9t/html-minifier/main/html-minifier.schema.json';
@@ -17,11 +17,11 @@ const labelOf = (level) => level === 'render' ? LABEL_RENDER : `${level.charAt(0
 // Share of the size below which whitespace collapsing suggests minified pages
 const SHARE_MINIFIED = 0.01;
 
-const ORDER_STATUS = ['kept', 'accepted', 'rejected', 'no-gain', 'no-effect', 'skipped'];
+const ORDER_STATUS = ['kept', 'accepted', 'rejected', 'in-effect', 'no-gain', 'no-effect', 'skipped'];
 
 // Statuses in words, so as not to read as verdicts on options
 /** @type {Record<string, string>} */
-const LABELS_STATUS = { 'accepted': 'recommended', 'kept': 'kept', 'rejected': 'doesn’t fit', 'no-gain': 'no gain', 'no-effect': 'no effect', 'skipped': 'skipped' };
+const LABELS_STATUS = { 'accepted': 'recommended', 'kept': 'kept', 'rejected': 'doesn’t fit', 'in-effect': 'in effect already', 'no-gain': 'no gain', 'no-effect': 'no effect', 'skipped': 'skipped' };
 
 /** @param {string} status */
 const formatStatus = (status) => LABELS_STATUS[status] ?? status;
@@ -37,6 +37,66 @@ export function toConfig(result, preserved = {}) {
     $schema: URL_SCHEMA,
     ...Object.fromEntries(Object.entries({ ...preserved, ...result.options }).sort(([a], [b]) => a.localeCompare(b)))
   };
+}
+
+/**
+ * Whether any option is recommended or kept, not counting carried options
+ * @param {import('./select.js').Result} result
+ */
+export const hasRecommendation = (result) => result.evaluations.some((evaluation) => evaluation.status === 'accepted' || evaluation.status === 'kept');
+
+/** @param {import('./select.js').Result} result */
+const inEffect = (result) => result.evaluations.filter((evaluation) => evaluation.status === 'in-effect').sort((a, b) => a.name.localeCompare(b.name));
+
+/**
+ * The result with the options in effect already, as configuration matching the pages, if any are
+ * @param {import('./select.js').Result} result
+ * @param {Record<string, unknown>} [preserved]
+ * @returns {Record<string, unknown> | null}
+ */
+export function toMatchingConfig(result, preserved = {}) {
+  const found = inEffect(result);
+  return found.length ? toConfig({ ...result, options: Object.assign({}, result.options, ...found.map((evaluation) => evaluation.options)) }, preserved) : null;
+}
+
+/**
+ * Whether the pages look minified already, by whitespace collapsing saving next to nothing, as
+ * unminified pages have whitespace to collapse
+ * @param {import('./select.js').Result} result
+ */
+function looksMinified(result) {
+  const whitespace = result.evaluations.find((evaluation) => evaluation.name === 'collapseWhitespace');
+  return Boolean(whitespace && whitespace.status !== 'skipped' && whitespace.savings < result.baseline[result.metric] * SHARE_MINIFIED);
+}
+
+/** @param {string[]} items */
+const listAnd = (items) => items.length > 2 ? `${items.slice(0, -1).join(', ')}, and ${items.at(-1)}` : items.join(' and ');
+
+/**
+ * The recommended configuration, or why there’s none, with the options in effect already
+ * @param {import('./select.js').Result} result
+ * @param {{preserved?: Record<string, unknown>, color?: boolean}} [settings]
+ * @returns {string}
+ */
+export function formatConfiguration(result, { preserved = {}, color = false } = {}) {
+  /** @param {Record<string, unknown>} config */
+  const json = (config) => JSON.stringify(config, null, 2);
+  const found = inEffect(result);
+  if (hasRecommendation(result)) {
+    const recommended = `${paint('bold', 'Recommended configuration:', color)}\n${json(toConfig(result, preserved))}`;
+    if (!found.length) return recommended;
+    const [them, verb] = found.length === 1 ? ['it', 'has'] : ['them', 'have'];
+    return `${recommended}\n\nThese pages ${verb} ${listAnd(found.map(({ name }) => `\`${name}\``))} in effect already. To keep ${them} so (e.g., when switching from another minifier), add ${them}—as ${found.length === 1 ? 'it changes' : 'they change'} nothing here, the checks can’t vouch for ${them}, so check ${them} on pages before minification.`;
+  }
+  const reason = looksMinified(result)
+    ? 'These pages look minified already.'
+    : result.evaluations.some((evaluation) => evaluation.status === 'rejected')
+      ? 'The options that save something don’t fit these pages.'
+      : `No option saves anything on these pages ${byMetric(result.metric)}.`;
+  const lines = [`No configuration to recommend: ${reason}`];
+  const matching = toMatchingConfig(result, preserved);
+  if (matching) lines.push('', `${paint('bold', 'Configuration matching these pages, by the options in effect already', color)} (as they change nothing here, the checks can’t vouch for them—check it on pages before minification):`, json(matching));
+  return lines.join('\n');
 }
 
 /**
@@ -217,16 +277,15 @@ export function formatReport(result, { renderReason = '', color = false, verbose
     })));
   }
 
-  // Unminified pages have whitespace to collapse; where there’s next to none, options that change
-  // nothing can’t be judged, as minification may have done their work
-  const whitespace = evaluations.find((evaluation) => evaluation.name === 'collapseWhitespace');
-  if (whitespace && whitespace.status !== 'skipped' && whitespace.savings < result.baseline[metric] * SHARE_MINIFIED) {
+  // Options that change nothing can’t be judged on minified pages, as minification
+  // may have done their work
+  if (looksMinified(result)) {
     const evaluated = evaluations.filter((evaluation) => evaluation.status !== 'skipped');
-    const ineffective = evaluated.filter((evaluation) => evaluation.status === 'no-effect');
-    lines.push('', `These pages look minified already: Collapsing whitespace saves less than ${SHARE_MINIFIED * 100}%, and ${ineffective.length} of ${evaluated.length} options have no effect. To evaluate those options, run on pages before minification (e.g., your build output with minification turned off).`);
+    const ineffective = evaluated.filter((evaluation) => evaluation.status === 'no-effect' || evaluation.status === 'in-effect');
+    lines.push('', `These pages look minified already: Collapsing whitespace saves less than ${SHARE_MINIFIED * 100}%, and ${ineffective.length} of ${evaluated.length} options change nothing. To evaluate those options, run on pages before minification (e.g., your build output with minification turned off).`);
   }
 
-  const explained = evaluations.filter((evaluation) => evaluation.reasons.some((reason) => reason.level !== 'info' || (evaluation.status !== 'no-gain' && evaluation.status !== 'no-effect')));
+  const explained = evaluations.filter((evaluation) => evaluation.status !== 'in-effect' && evaluation.reasons.some((reason) => reason.level !== 'info' || (evaluation.status !== 'no-gain' && evaluation.status !== 'no-effect')));
   if (explained.length) {
     lines.push('', 'Details:');
     let condensed = false;
@@ -247,6 +306,6 @@ export function formatReport(result, { renderReason = '', color = false, verbose
   if (result.notes.length) {
     lines.push('', 'Notes:', ...result.notes.map((note) => `• ${note}`));
   }
-  lines.push('', 'Checks can show that options change these pages, not that they never will—test the configuration on your site.');
+  lines.push('', `Checks can show that options change these pages, not that they never will${hasRecommendation(result) ? '—test the configuration on your site' : ''}.`);
   return lines.join('\n');
 }
