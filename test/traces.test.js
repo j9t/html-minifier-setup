@@ -39,6 +39,10 @@ describe('`tracesOf`', () => {
     assert.ok(traced('<p>a b</p><pre>  c\n</pre><script>\n</script>', 'collapseWhitespace'));
   });
 
+  test('Ignores whitespace in templates', () => {
+    assert.ok(traced('<p>a b</p><template>\n  <p>c</p>\n</template>', 'collapseWhitespace'));
+  });
+
   test('Takes self-closed elements for traces only in SVG and MathML', () => {
     assert.ok(!traced('<p>a<br/>b</p>', 'selfCloseForeignElements'));
     assert.ok(traced('<math><mspace/></math>', 'selfCloseForeignElements'));

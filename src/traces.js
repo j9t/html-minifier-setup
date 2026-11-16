@@ -26,8 +26,10 @@ const RE_WHITESPACE_LOOSE = /\s{2,}|[\t\n\r\f]/;
 
 /** @param {Element} element */
 const insideRaw = (element) => {
-  for (let node = /** @type {Element | null} */ (element); node && 'tagName' in node; node = /** @type {Element | null} */ (node.parentNode)) {
-    if (RAW_TEXT.has(node.tagName)) return true;
+  for (let node = /** @type {Element | null} */ (element); node; node = /** @type {Element | null} */ (node.parentNode)) {
+    // In parsed documents, only template contents are fragments, which don’t lead back to templates
+    if (/** @type {{nodeName: string}} */ (node).nodeName === '#document-fragment') return true;
+    if ('tagName' in node && RAW_TEXT.has(node.tagName)) return true;
   }
   return false;
 };

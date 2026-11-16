@@ -205,19 +205,20 @@ describe('`createRenderer`', { skip: renderer ? false : `No browser: ${reason}` 
   });
 
   test('Ignores script errors that come and go between loads', async () => {
-    // Fails on one load of the script, whichever that is
+    // Only the minified page loads the script, which fails on its first load alone
     let loads = 0;
     const server = http.createServer((request, response) => {
-      response.writeHead(200, { 'content-type': request.url === '/flaky.js' ? 'text/javascript' : 'text/html' });
-      response.end(request.url === '/flaky.js' && ++loads === 3 ? 'throw new Error("Now and then")' : '');
+      const isScript = request.url === '/flaky.js';
+      response.writeHead(200, { 'content-type': isScript ? 'text/javascript' : 'text/html' });
+      response.end(isScript && ++loads === 1 ? 'throw new Error("Now and then")' : '');
     });
     await new Promise((resolve) => server.listen(0, '127.0.0.1', () => resolve(undefined)));
     try {
       const { port } = /** @type {import('node:net').AddressInfo} */ (server.address());
-      const page = createPage({ id: 'f.html', html: '<!doctype html><p>a</p><script src="flaky.js"></script>', url: `http://127.0.0.1:${port}/f.html` });
-      const verdict = await r.compare(page, page.html.replace('<p>a</p>', '<p>a'));
+      const page = createPage({ id: 'f.html', html: '<!doctype html><p>a</p>', url: `http://127.0.0.1:${port}/f.html` });
+      const verdict = await r.compare(page, '<!doctype html><p>a<script src="flaky.js"></script>');
       assert.deepStrictEqual(verdict.reasons, []);
-      assert.ok(loads >= 3, `${loads} loads`);
+      assert.strictEqual(loads, 2);
     } finally {
       server.close();
     }
