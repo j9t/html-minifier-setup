@@ -116,7 +116,9 @@ describe('`createRenderer`', { skip: renderer ? false : `No browser: ${reason}` 
   });
 
   test('Rejects captures of pages that stop responding after loading, instead of waiting for them, and renders other pages', async () => {
-    const found = await createRenderer({ viewports: [{ width: 800, height: 600 }], timeout: 1000 });
+    // Closing the stopped page can take over a second (as on Windows in CI),
+    // which would count as the browser stopping
+    const found = await createRenderer({ viewports: [{ width: 800, height: 600 }], timeout: 3000 });
     const rendererHung = /** @type {import('../src/render.js').Renderer} */ (found.renderer);
     try {
       const html = '<!doctype html><p>a</p><script>addEventListener("load", () => setTimeout(() => { for (;;); }, 0))</script>';
