@@ -6,7 +6,7 @@ HTML Minifier Setup (HMS) helps you select the [HTML Minifier](https://www.npmjs
 
 It also reports what each option saves, which is useful on its own: Which options pay off on your site, and which don’t?
 
-ℹ️ **This is an early release that may not work accurately yet. Options and output may change. You’re encouraged to re-test your configuration come version 1+. [Issue reports and feedback](https://github.com/j9t/html-minifier-setup/issues) are welcome.**
+⚠️ **This is an early release that may not work accurately yet. Options and output may change. You’re encouraged to re-test your configuration come version 1+. [Issue reports and feedback](https://github.com/j9t/html-minifier-setup/issues) are welcome.**
 
 ## Usage
 
