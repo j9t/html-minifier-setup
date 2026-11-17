@@ -36,7 +36,9 @@ export default [
     languageOptions: {
       globals: {
         document: 'readonly',
-        requestAnimationFrame: 'readonly'
+        requestAnimationFrame: 'readonly',
+        scrollX: 'readonly',
+        scrollY: 'readonly'
       }
     }
   }

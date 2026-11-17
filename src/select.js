@@ -14,6 +14,7 @@ import { minifyInWorkers } from './workers.js';
  * @prop {'risk' | 'check' | 'note' | 'render' | 'equivalence' | 'error' | 'info'} level
  * @prop {string} message
  * @prop {string} [page]
+ * @prop {number} [shift] Pixels elements move by, where that is all the page’s render check found
  */
 
 /**
@@ -42,6 +43,8 @@ import { minifyInWorkers } from './workers.js';
  * @prop {PresetComparison[]} presets
  * @prop {boolean} renderedSame Whether the configuration was found to look the same as the original pages, with every file they requested
  * @prop {string[]} blocked Files pages requested but the render check didn’t get, as symbolic links lead them outside the site
+ * @prop {string[]} failed Style sheets, scripts, and fonts that didn’t load in the render check
+ * @prop {number} allowShift Pixels elements were allowed to move by in the render check
  * @prop {string[]} viewports Viewports rendered at, if known
  * @prop {string | null} browser Browser rendered in, if known
  */
@@ -52,6 +55,7 @@ import { minifyInWorkers } from './workers.js';
  * @prop {number} size Over the pages the preset could minify, by the metric
  * @prop {number | null} failing Pages rendering differently, if render-checked
  * @prop {number | null} inconclusive Pages whose render check was inconclusive, if render-checked
+ * @prop {number | null} shift Pixels elements move by at most, where that is all that differs on the pages rendering differently
  * @prop {number} errors Pages the preset couldn’t minify
  * @prop {string[]} rejected Options the preset includes that were rejected
  */
@@ -218,21 +222,53 @@ export async function customize(pagesGiven, settings = {}) {
   const inUse = () => [...evaluations.values()].filter(isInUse);
   /** @type {Set<string>} */
   const blocked = new Set();
+  /** @type {Set<string>} */
+  const failed = new Set();
   /**
    * Compares with the renderer, taking a comparison that fails as inconclusive
    * @param {import('./pages.js').Page} page
    * @param {string} html
    * @returns {Promise<import('./render.js').Verdict>}
    */
-  const compare = async (page, html) => {
+  const compareWith = async (page, html) => {
     try {
       const verdict = await /** @type {import('./render.js').Renderer} */ (renderer).compare(page, html);
       for (const file of verdict.blocked ?? []) blocked.add(file);
+      for (const file of verdict.failed ?? []) failed.add(file);
       return verdict;
     } catch (err) {
       return { equal: false, inconclusive: true, reasons: [], notes: [`Couldn’t be render-checked: ${messageOf(err)}`] };
     }
   };
+  // Pages as minified with the carried options alone, which every configuration builds on, so
+  // that options aren’t taken for what HTML Minifier does anyway (e.g., removing `htmlmin:ignore`
+  // comments)
+  /** @type {Map<import('./pages.js').Page, import('./pages.js').Page>} */
+  const references = new Map();
+  // Whether any page looks different, or may, minified without options
+  let referencesDiffer = false;
+  if (renderer) {
+    await Promise.all(pages.map(async (page) => {
+      const html = await run(page, base);
+      if (html === page.html) return;
+      references.set(page, { ...page, html });
+      const verdict = await compareWith(page, html);
+      for (const note of verdict.notes) notes.add(`${page.id}: ${note}`);
+      if (verdict.equal) return;
+      referencesDiffer = true;
+      if (verdict.inconclusive) {
+        notes.add(`${page.id}: Couldn’t tell whether HTML Minifier changes it even without options; options were render-checked against its output without them`);
+        return;
+      }
+      const cause = page.html.includes('htmlmin:ignore') ? ' (e.g., by removing `htmlmin:ignore` comments)' : '';
+      notes.add(`${page.id}: HTML Minifier changes it even without options${cause}—${verdict.reasons[0]}; options were render-checked against that`);
+    }));
+  }
+  /**
+   * @param {import('./pages.js').Page} page
+   * @param {string} html
+   */
+  const compare = (page, html) => compareWith(references.get(page) ?? page, html);
   /** @param {Reason[]} reasons */
   const isBlocking = (reasons) => reasons.some((reason) => reason.level === 'risk' || reason.level === 'equivalence' || reason.level === 'error' || (reason.level === 'check' && !renderer));
 
@@ -388,7 +424,7 @@ export async function customize(pagesGiven, settings = {}) {
       };
     };
     /** @param {{page: import('./pages.js').Page, verdict: import('./render.js').Verdict}[]} failures */
-    const renderReasons = (failures) => failures.flatMap(({ page, verdict }) => verdict.reasons.slice(0, MAX_REASONS_PER_PAGE).map((message) => /** @type {Reason} */ ({ level: 'render', page: page.id, message })));
+    const renderReasons = (failures) => failures.flatMap(({ page, verdict }) => verdict.reasons.slice(0, MAX_REASONS_PER_PAGE).map((message) => /** @type {Reason} */ ({ level: 'render', page: page.id, message, ...typeof verdict.shift === 'number' ? { shift: verdict.shift } : {} })));
 
     let round = 0;
     for (; round < MAX_RENDER_ROUNDS; round++) {
@@ -433,7 +469,7 @@ export async function customize(pagesGiven, settings = {}) {
     }
     if (round === MAX_RENDER_ROUNDS) {
       renderLimitReached = true;
-      notes.add('Rendering still differed after the maximum number of rounds; the configuration may not look the same');
+      notes.add(`Pages still rendered differently after ${MAX_RENDER_ROUNDS} rounds of setting options aside, so the configuration may not look the same`);
     }
     for (const evaluation of inUse()) {
       const checks = evaluation.reasons.filter((reason) => reason.level === 'check');
@@ -517,10 +553,12 @@ export async function customize(pagesGiven, settings = {}) {
       return verdict;
     })) : null;
     onProgress({ phase: 'presets', detail: name, current: ++presetsDone, total: presetsCompared.length });
+    const failing = verdicts?.filter((verdict) => !verdict.equal && !verdict.inconclusive) ?? [];
     return {
       name,
       size: await totalSize(minified.map(({ html }) => html)),
-      failing: verdicts ? verdicts.filter((verdict) => !verdict.equal && !verdict.inconclusive).length : null,
+      failing: verdicts ? failing.length : null,
+      shift: failing.length && failing.every((verdict) => typeof verdict.shift === 'number') ? Math.max(...failing.map((verdict) => /** @type {number} */ (verdict.shift))) : null,
       inconclusive: verdicts ? verdicts.filter((verdict) => verdict.inconclusive).length : null,
       errors,
       rejected: Object.keys(preset).filter((key) => {
@@ -544,8 +582,10 @@ export async function customize(pagesGiven, settings = {}) {
     equivalence: equivalence?.source ?? null,
     notes: [...notes, ...[...pagesKeptDiffer].map((page) => `${page.id}: Looks different with the kept options alone, so other options weren’t render-checked on it`)],
     presets: comparisons,
-    renderedSame: Boolean(renderer) && !renderLimitReached && !pagesUnchecked.size && !blocked.size,
+    renderedSame: Boolean(renderer) && !renderLimitReached && !pagesUnchecked.size && !blocked.size && !failed.size && !referencesDiffer,
     blocked: [...blocked].sort(),
+    failed: [...failed].sort(),
+    allowShift: renderer?.allowShift ?? 0,
     viewports: (renderer?.viewports ?? []).map(({ width, height }) => `${width}×${height}`),
     browser: renderer?.browser ?? null
   };

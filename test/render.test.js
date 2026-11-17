@@ -7,7 +7,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createPage, loadPages } from '../src/pages.js';
-import { combineOriginals, createGuard, createLimit, createRenderer, playwrightCli, serve } from '../src/render.js';
+import { combineOriginals, createGuard, createLimit, createRenderer, playwrightCli, regionsMoved, serve, shiftOf } from '../src/render.js';
 
 const dirSite = path.join(path.dirname(fileURLToPath(import.meta.url)), 'fixtures', 'site');
 const { renderer, reason } = await createRenderer({ viewports: [{ width: 800, height: 600 }] });
@@ -52,6 +52,12 @@ describe('`createRenderer` browsers', () => {
   test('Fails on concurrency that would render no page', async () => {
     for (const concurrency of [0, 1.5, Number.NaN]) {
       await assert.rejects(createRenderer({ concurrency }), /concurrency/i);
+    }
+  });
+
+  test('Fails on shifts that aren’t whole pixels', async () => {
+    for (const allowShift of [-1, 1.5, Number.NaN]) {
+      await assert.rejects(createRenderer({ allowShift }), /shift/i);
     }
   });
 
@@ -229,6 +235,156 @@ describe('`createRenderer`', { skip: renderer ? false : `No browser: ${reason}` 
     const verdict = await r.compare(page, '<!doctype html><p>a</p><script>nope()</script>');
     assert.strictEqual(verdict.equal, true);
   });
+
+  test('Finds markup that only changes anti-aliasing equal', async () => {
+    // Comments split text, which then renders at slightly different sub-pixel offsets
+    const style = '<style>body { font: 15px/1.5 sans-serif; text-align: center }</style>';
+    const page = createPage({ id: 'g.html', html: `<!doctype html>${style}<p>Filter entries on this page:<!-- a --> <!-- b --><span>Tech</span> more` });
+    const verdict = await r.compare(page, `<!doctype html>${style}<p>Filter entries on this page: <span>Tech</span> more`);
+    assert.deepStrictEqual(verdict.reasons, []);
+  });
+
+  test('Finds whitespace that only shows in text, not on screen, equal', async () => {
+    const style = '<style>ul { display: flex; gap: 1em; list-style: none }</style>';
+    const page = createPage({ id: 'h.html', html: `<!doctype html>${style}<ul><li>One</li> <li>Two</li></ul>` });
+    const verdict = await r.compare(page, `<!doctype html>${style}<ul><li>One</li><li>Two</li></ul>`);
+    assert.deepStrictEqual(verdict.reasons, []);
+  });
+
+  test('Reports how far elements move where that is all that differs', async () => {
+    const page = createPage({ id: 'i.html', html: '<!doctype html><main><p style="margin-left: 0">One</p></main>' });
+    const verdict = await r.compare(page, '<!doctype html><main><p style="margin-left: 8px">One</p></main>');
+    assert.deepStrictEqual(verdict.reasons, ['Moves elements by up to 8 px at 800×600 (e.g., main > p)']);
+    assert.strictEqual(verdict.shift, 8);
+  });
+
+  test('Reports text that runs together, beyond elements moving', async () => {
+    const style = '<style>ul { margin: 0; padding: 0; text-align: center } li { display: inline; margin-right: 1em }</style>';
+    const page = createPage({ id: 'l.html', html: `<!doctype html>${style}<ul><li><a href=#>One</a>\n<li><a href=#>Two</a>\n</ul>` });
+    const verdict = await r.compare(page, `<!doctype html>${style}<ul><li><a href=#>One</a><li><a href=#>Two</a></ul>`);
+    assert.match(verdict.reasons.join('\n'), /^Moves elements by up to \d+ px at 800×600 \(e\.g\., ul > li\)\nText differs at 800×600: “One Two” became “OneTwo”$/);
+    assert.strictEqual(verdict.shift, null);
+  });
+
+  test('Finds what looks different beyond elements moving by less than a pixel different', async () => {
+    const page = createPage({ id: 'n.html', html: '<!doctype html><p style="margin-left: 0">One</p><p style="color: #000">Two</p>' });
+    const verdict = await r.compare(page, '<!doctype html><p style="margin-left: 0.4px">One</p><p style="color: #222">Two</p>');
+    assert.deepStrictEqual(verdict.reasons, ['Looks different at 800×600']);
+  });
+
+  test('Finds what looks different without moving different', async () => {
+    const page = createPage({ id: 'j.html', html: '<!doctype html><p style="color: #000">Some text</p>' });
+    const verdict = await r.compare(page, '<!doctype html><p style="color: #222">Some text</p>');
+    assert.deepStrictEqual(verdict.reasons, ['Looks different at 800×600']);
+    assert.strictEqual(verdict.shift, null);
+  });
+
+  test('Loads lazy images before comparing, as full-page screenshots show them', async () => {
+    const server = http.createServer((_request, response) => {
+      // Late, as images over a network can be
+      setTimeout(() => response.writeHead(200, { 'content-type': 'image/svg+xml' }).end('<svg xmlns="http://www.w3.org/2000/svg" width="200" height="300"><rect width="200" height="300" fill="red"/></svg>'), 300);
+    });
+    await new Promise((resolve) => server.listen(0, '127.0.0.1', () => resolve(undefined)));
+    try {
+      const { port } = /** @type {import('node:net').AddressInfo} */ (server.address());
+      const page = createPage({ id: 'm.html', html: `<!doctype html><div style="height: 3000px"></div><img src=http://127.0.0.1:${port}/a.svg alt="" loading=lazy><p>End` });
+      const verdict = await r.compare(page, `<!doctype html><div style="height: 3000px"></div><img src=http://127.0.0.1:${port}/a.svg alt=""><p>End`);
+      assert.deepStrictEqual(verdict.reasons, []);
+    } finally {
+      server.close();
+    }
+  });
+
+  test('Fetches files from other origins once per origin requesting them, as answers may depend on it', async () => {
+    /** @type {Set<string>} */
+    const origins = new Set();
+    const server = http.createServer((request, response) => {
+      const origin = String(request.headers.origin ?? '');
+      origins.add(origin);
+      response.writeHead(200, { 'access-control-allow-origin': origin, 'content-type': 'text/plain' }).end('fetched');
+    });
+    await new Promise((resolve) => server.listen(0, '127.0.0.1', () => resolve(undefined)));
+    try {
+      const { port } = /** @type {import('node:net').AddressInfo} */ (server.address());
+      const html = `<!doctype html><p id=out>waiting</p><script>fetch("http://127.0.0.1:${port}/data").then((response) => response.text()).then((text) => { document.querySelector("#out").textContent = text; })</script>`;
+      // From different origins: served locally, and at a URL of its own
+      const pages = [createPage({ id: 'p.html', html }), createPage({ id: 'q.html', html, url: 'http://localhost:9/q.html' })];
+      for (const page of pages) {
+        const verdict = await r.compare(page, `${html}<!-- changed -->`);
+        assert.strictEqual(verdict.equal, true);
+      }
+      assert.strictEqual(origins.size, 2);
+    } finally {
+      server.close();
+    }
+  });
+
+  test('Fetches files from other origins once for all loads, naming those that didn’t load', async () => {
+    /** @type {Record<string, number>} */
+    const requests = {};
+    const server = http.createServer((request, response) => {
+      requests[request.url ?? ''] = (requests[request.url ?? ''] ?? 0) + 1;
+      if (request.url === '/a.css') {
+        response.writeHead(200, { 'content-type': 'text/css' }).end('p { color: red }');
+      } else {
+        response.writeHead(404).end();
+      }
+    });
+    await new Promise((resolve) => server.listen(0, '127.0.0.1', () => resolve(undefined)));
+    try {
+      const { port } = /** @type {import('node:net').AddressInfo} */ (server.address());
+      const links = `<link rel=stylesheet href=http://127.0.0.1:${port}/a.css><link rel=stylesheet href=http://127.0.0.1:${port}/missing.css>`;
+      const page = createPage({ id: 'k.html', html: `<!doctype html>${links}<p>a</p>` });
+      const verdict = await r.compare(page, `<!doctype html>${links}<p>a`);
+      assert.strictEqual(verdict.equal, true);
+      assert.strictEqual(requests['/a.css'], 1);
+      assert.deepStrictEqual(verdict.failed, [`http://127.0.0.1:${port}/missing.css`]);
+    } finally {
+      server.close();
+    }
+  });
+});
+
+describe('`createRenderer` with allowed shifts', { skip: renderer ? false : `No browser: ${reason}` }, () => {
+  test('Finds elements moving no more than allowed equal, but not text that differs or runs together', async () => {
+    const found = await createRenderer({ viewports: [{ width: 800, height: 600 }], allowShift: 20 });
+    const rendererShifting = /** @type {import('../src/render.js').Renderer} */ (found.renderer);
+    try {
+      const page = createPage({ id: 'i.html', html: '<!doctype html><p style="margin-left: 0">One two</p>' });
+      assert.deepStrictEqual((await rendererShifting.compare(page, '<!doctype html><p style="margin-left: 8px">One two</p>')).reasons, []);
+      assert.match((await rendererShifting.compare(page, '<!doctype html><p style="margin-left: 8px">One three</p>')).reasons.join(), /Text differs/);
+      assert.match((await rendererShifting.compare(page, '<!doctype html><p style="margin-left: 8px">One<span>two</span></p>')).reasons.join(), /Text differs/);
+      const pageTwo = createPage({ id: 'o.html', html: '<!doctype html><p style="margin-left: 0">One</p><p style="color: #000">Two</p>' });
+      const verdict = await rendererShifting.compare(pageTwo, '<!doctype html><p style="margin-left: 8px">One</p><p style="color: #222">Two</p>');
+      assert.deepStrictEqual(verdict.reasons, ['Moves elements by up to 8 px at 800×600 (e.g., p), and looks different beyond that']);
+      assert.strictEqual(verdict.shift, null);
+    } finally {
+      await found.renderer?.close();
+    }
+  });
+});
+
+describe('`regionsMoved`', () => {
+  test('Returns where the innermost elements that moved were and went, a pixel around', () => {
+    const outer = { path: 'main', x: 0, y: 0, width: 100, height: 100 };
+    const inner = { path: 'main > p', x: 10, y: 10, width: 20, height: 10 };
+    const still = { path: 'main > div', x: 50, y: 50, width: 10, height: 10 };
+    assert.deepStrictEqual(regionsMoved([outer, inner, still], [{ ...outer, x: 4 }, { ...inner, x: 14 }, still]), [{ x: 9, y: 9, width: 26, height: 12 }]);
+  });
+});
+
+describe('`shiftOf`', () => {
+  const box = { path: 'ul > li', x: 0, y: 0, width: 10, height: 10 };
+
+  test('Returns how far elements moved or changed size at most, and where', () => {
+    assert.deepStrictEqual(shiftOf([box, { ...box, path: 'p' }], [{ ...box, x: 3 }, { ...box, path: 'p', width: 5 }]), { shift: 5, path: 'p' });
+    assert.deepStrictEqual(shiftOf([box], [box]), { shift: 0, path: '' });
+  });
+
+  test('Returns null where elements were added or removed', () => {
+    assert.strictEqual(shiftOf([box], [box, box]), null);
+    assert.strictEqual(shiftOf([box], [{ ...box, path: 'p' }]), null);
+  });
 });
 
 describe('`createGuard`', () => {
@@ -275,8 +431,8 @@ describe('`createLimit`', () => {
 
 describe('`combineOriginals`', () => {
   test('Keeps files either load of the original didn’t get, telling what stayed the same between loads', () => {
-    const first = { shot: Buffer.from('a'), text: 'a', errors: [], blocked: ['a.css'] };
-    const second = { shot: Buffer.from('a'), text: 'b', errors: [], blocked: ['a.css', 'b.css'] };
+    const first = { shot: Buffer.from('a'), text: 'a', errors: [], blocked: ['a.css'], failed: [], boxes: [] };
+    const second = { shot: Buffer.from('a'), text: 'b', errors: [], blocked: ['a.css', 'b.css'], failed: [], boxes: [] };
     const { capture, stableShot, stableText } = combineOriginals(first, second);
     assert.deepStrictEqual(capture.blocked, ['a.css', 'b.css']);
     assert.strictEqual(capture.text, 'a');
@@ -285,8 +441,8 @@ describe('`combineOriginals`', () => {
   });
 
   test('Keeps script errors of either load of the original, as often as either had them', () => {
-    const first = { shot: Buffer.from('a'), text: 'a', errors: ['A', 'B', 'B'], blocked: [] };
-    const second = { shot: Buffer.from('a'), text: 'a', errors: ['B', 'C'], blocked: [] };
+    const first = { shot: Buffer.from('a'), text: 'a', errors: ['A', 'B', 'B'], blocked: [], failed: [], boxes: [] };
+    const second = { shot: Buffer.from('a'), text: 'a', errors: ['B', 'C'], blocked: [], failed: [], boxes: [] };
     assert.deepStrictEqual(combineOriginals(first, second).capture.errors.sort(), ['A', 'B', 'B', 'C']);
   });
 });

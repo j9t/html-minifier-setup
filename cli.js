@@ -33,6 +33,13 @@ const positiveInteger = (value) => {
 };
 
 /** @param {string} value */
+const pixels = (value) => {
+  const number = Number(value);
+  if (!/^\d+$/.test(value.trim()) || !Number.isSafeInteger(number)) throw new Error(`Not a whole number of pixels: ${value}`);
+  return number;
+};
+
+/** @param {string} value */
 const viewports = (value) => {
   const items = list(value);
   if (!items.length) throw new Error('No viewports given (e.g., 1280x800,390x844)');
@@ -82,6 +89,7 @@ const program = new Command()
   .addOption(new Option('--no-equivalence', 'Skip HTML Minifier’s equivalence check').hideHelp())
   .option('--no-presets', 'Skip comparing with HTML Minifier’s presets')
   .option('--viewports <list>', 'Viewports to render at', viewports, VIEWPORTS_DEFAULT)
+  .option('--allow-shift <px>', 'Pixels elements may move or change size by in the render check, where nothing else changes, not even spaces between words', pixels, 0)
   .option('--concurrency <count>', 'Pages to render at once', positiveInteger, CONCURRENCY_DEFAULT)
   .option('--follow-links', 'Follow symbolic links outside the site in the render check, without asking (do so only for sites you trust)')
   .option('--json', 'Print the full result as JSON')
@@ -110,7 +118,7 @@ const program = new Command()
     if (!pages.length) throw new Error(`No pages found in ${inputs.join(', ')}`);
 
     const followLinks = settings.render && (settings.followLinks || (interactive && await confirmLinks(pages, fromConfig('ignoreDir'))));
-    const settingsRenderer = { viewports: settings.viewports, concurrency: settings.concurrency, followLinks };
+    const settingsRenderer = { viewports: settings.viewports, concurrency: settings.concurrency, followLinks, allowShift: settings.allowShift };
     if (settings.render) progress.update({ phase: 'start' });
     let rendering = settings.render ? await createRenderer(settingsRenderer) : { renderer: null, reason: 'skipped as asked' };
     if ('missing' in rendering && rendering.missing && interactive) {

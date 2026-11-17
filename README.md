@@ -6,7 +6,7 @@ HTML Minifier Setup (HMS) helps you select the [HTML Minifier](https://www.npmjs
 
 It also reports what each option saves, which is useful on its own: Which options pay off on your site, and which don’t?
 
-ℹ️ **This is an early release. Options and output may change before 1.0.0. Feedback is welcome.**
+ℹ️ **This is an early release that may not work accurately yet. Options and output may change. You’re encouraged to re-test your configuration come version 1+. [Issue reports and feedback](https://github.com/j9t/html-minifier-setup/issues) are welcome.**
 
 ## Usage
 
@@ -16,13 +16,13 @@ npx html-minifier-setup [inputs...] [options]
 
 (Like HTML Minifier, HTML Minifier Setup requires Node.js ≥22.13.)
 
-Inputs are HTML files, directories, or URLs (default: the current directory). From directories, up to 20 pages (`--sample`) are picked, spread across a site’s sections first and then across the directories within them, to cover its templates. The same pages give the same sample, and the report says how many pages it was taken from.
+Inputs are HTML files, directories, or URLs (default: the current directory). From directories, up to 20 pages (`--sample`) are picked, spread across a site’s sections first and then across the directories within them, to try to cover its templates. The same pages give the same sample, and the report says how many pages it was taken from.
 
-The render check, which catches most of what static checks can’t, uses Playwright’s Chromium, or else Chrome or Edge, if installed. Where none is found, HTML Minifier Setup offers to download Chromium.
+The render check uses Playwright’s Chromium, or else Chrome or Edge, if installed. Where none is found, HTML Minifier Setup offers to download Chromium.
 
 Local pages are served to the browser from their directory. Symbolic links that lead outside it are followed only if you agree (or pass `--follow-links`), as a page’s scripts could send on what they lead to. Where nobody can answer, they aren’t followed.
 
-Where no option fits, HTML Minifier Setup says why. On pages that are already minified, it then shows the configuration matching them, by the options in effect already (see below)—useful when switching from another minifier.
+Where no option fits, HTML Minifier Setup says why. On pages that are already minified, where no option that saves something was rejected, it then shows the configuration matching them, by the options in effect already (see below)—useful when switching from another minifier.
 
 On a terminal, HTML Minifier Setup offers to save the recommended configuration (or else the one matching the pages; as html-minifier.config.json, in the project of the pages evaluated or a directory of your choice) and, where it isn’t installed yet, to install HTML Minifier there (with the package manager the project uses), or to update it where a newer version is out. All offers default to no. Where one of HTML Minifier’s presets with a few changes has the same effect, it also offers to save the configuration that way—shorter, and following changes to the preset.
 
@@ -47,6 +47,7 @@ npx html-minifier --input-dir ./dist --output-dir ./dist
 | `--no-render` | Skip the render check, not recommending options that need it |
 | `--no-presets` | Skip comparing with HTML Minifier’s presets |
 | `--viewports <list>` | Viewports to render at (default: `1280x800,390x844`) |
+| `--allow-shift <px>` | Pixels elements may move or change size by in the render check, where nothing else changes, not even spaces between words (default: `0`); the report names how far options move elements, and suggests this where that is all they change |
 | `--concurrency <count>` | Pages to render at once, across viewports and options (default: 4) |
 | `--follow-links` | Follow symbolic links outside the site in the render check, without asking (do so only for sites you trust) |
 | `--json` | Print the full result as JSON |
@@ -54,12 +55,12 @@ npx html-minifier --input-dir ./dist --output-dir ./dist
 
 ### Scripts and CI
 
-HTML Minifier Setup is meant to be run, not installed: It has no programmatic API. For scripts and CI, use `--json` (which prints the full result) or `-o` (which writes the configuration).
+HTML Minifier Setup is meant to be run, which is why it has no programmatic API. For scripts and CI, use `--json` (which prints the full result) or `-o` (which writes the configuration).
 
 ## How it works
 
 1. **Each option on its own:** Every candidate option is run on every page and measured against output without it. Options that change nothing (“no effect,” or “in effect already” where the page has what they act on in the form they produce), or don’t save anything by the chosen metric (“no gain”), are left out. What an option changes is then checked against what the page relies on (see below).
-2. **All recommended options together, rendered:** Pages are rendered as written (twice, to tell what differs between loads) and as minified, in Chromium (or Chrome or Edge) at each viewport, and compared by screenshot, text, and script errors; new script errors are confirmed by loading the minified page again, as some (e.g., of embeds) come and go. Where rendering differs, options are rendered on their own to find the culprit; where none breaks rendering on its own, options are added by savings until rendering holds.
+2. **All recommended options together, rendered:** Pages are rendered as HTML Minifier puts them out without options (twice, to tell what differs between loads) and as minified, in Chromium (or Chrome or Edge) at each viewport, and compared by screenshot, text, and script errors. That way, options aren’t attributed for what HTML Minifier does anyway (e.g., removing `htmlmin:ignore` comments); where that alone looks different from the pages as written, the report notes it. Screenshots are compared beyond anti-aliasing, as text that moves by less than a pixel rasterizes differently, and text regardless of whitespace that doesn’t show (e.g., between flex items), while words running together or apart count. New script errors are confirmed by loading the minified page again, as some (e.g., of embeds) come and go. Files from other origins (e.g., CDNs) are fetched once for all loads, and the report names those that didn’t load. Where rendering differs, options are rendered on their own to find the culprit; where none breaks rendering on its own, options are added by savings until rendering holds.
 3. **Contributions:** Each option’s share of the final savings is measured by leaving it out. Options that save nothing alongside the others are dropped.
 4. **Presets:** HTML Minifier’s presets (`conservative` and `comprehensive`) are measured and rendered on the same pages, naming options they include that don’t fit, to show what the recommended configuration gains over them.
 
@@ -80,7 +81,7 @@ Options _in effect already_ change nothing, but the pages have what they act on,
 
 Options flagged by the static check as a _risk_ don’t fit and aren’t recommended. Options flagged for a _check_ (e.g., whitespace collapsing where CSS keeps whitespace) are recommended unless they render differently—without a render check, they’re rejected. Where the render check can’t tell (e.g., on pages that look different between loads or with options kept), the report says so. _Notes_ don’t reject.
 
-Options that make pages look different are mostly doing what they’re designed to do—collapsing whitespace changes spacing where a layout relies on it—so they don’t fit these pages, without HTML Minifier being at fault. Where an option that isn’t meant to change how pages look does, the report suggests it may be an HTML Minifier bug worth reporting. The configuration recommended looks the same as the original pages at every viewport checked.
+Options that make pages look different are mostly doing what they’re designed to do—collapsing whitespace changes spacing where a layout relies on it—so they don’t fit these pages, without HTML Minifier being at fault. Where an option that isn’t meant to change how pages look does, the report suggests it may be an HTML Minifier bug worth reporting. Where an option only moves elements, the report says by how much, and `--allow-shift` accepts moves that small. The configuration recommended looks the same as the original pages at every viewport checked (but for moves `--allow-shift` accepts).
 
 ### Limits
 
@@ -88,7 +89,7 @@ The checks can show that options change pages, not that they never will:
 
 * The render check sees pages as they load, not after interaction (e.g., a menu a script opens, using classes `removeUnusedCSS` removed).
 * Scripts from other origins can’t be read, and classes or attributes a script builds at runtime (e.g., `'is-' + state`) can’t be found.
-* Rendering must match pixel for pixel, so lossy changes (e.g., SVG coordinates rounded by `minifySVG`) count as differences.
+* Screenshots must match exactly, except for anti-aliasing and moves of less than a pixel. Lossy changes (e.g., SVG coordinates that `minifySVG` rounds) therefore count as differences. The tolerance isn’t perfect: Some anti-aliasing may still count, and subtle color changes on thin text may go unnoticed.
 * Pages that options kept with `--keep` make look different can’t show whether other options do, too.
 * A page sample may miss templates the rest of the site uses—for sites with many different templates, raise `--sample`.
 * Options that change nothing can’t be judged: On pages that are minified already, most options are left out, as there’s nothing left for them to do, and the configuration matching them is inferred, not checked. Run HTML Minifier Setup on pages before minification instead.
@@ -115,7 +116,7 @@ Runs the type check (`tsc`) and then the suites in test/. Render tests skip wher
 
 ### Equivalence check
 
-With [an HTML Minifier](https://github.com/j9t/html-minifier) checkout next to this one (../html-minifier), runs also use HTML Minifier’s equivalence check (test/equivalence/ there), which finds output that means something else to browsers than its source—HTML Minifier bugs rather than what a site relies on. Options whose output it flags don’t fit, and the report names the check and the HTML Minifier versions involved. It covers the options the check models.
+With an [HTML Minifier](https://github.com/j9t/html-minifier) checkout next to this one (../html-minifier), runs also use HTML Minifier’s equivalence check (test/equivalence/ there), which finds output that means something else to browsers than its source—HTML Minifier bugs rather than what a site relies on. Options whose output it flags don’t fit, and the report names the check and the HTML Minifier versions involved. It covers the options the check models.
 
 The check runs on the main thread and adds noticeably to the time evaluating options takes; `--no-equivalence` skips it. Without a checkout, as for users, it doesn’t run, and test/equivalence.test.js skips.
 
@@ -135,3 +136,11 @@ Parameters:
 * `--iterations=N`: Sets the number of timed iterations (default: 3)
 
 Runs are only compared with a baseline taken with the same inputs, render setting, and iterations. To profile, run `node --cpu-prof benchmark/benchmark.js` and load the .cpuprofile file in Chrome DevTools or with `npx speedscope`.
+
+***
+
+You might like some of my other work:
+
+* Optimization tools: [hihtml](https://github.com/j9t/hihtml) · [HTML Minifier](https://github.com/j9t/html-minifier) · [CSS Dedup](https://github.com/j9t/css-dedup) · [Image Guard](https://github.com/j9t/image-guard) · [more](https://github.com/j9t?tab=repositories)
+* Defense tools: [AWAGAM TLD, Domain, and URL Blocker](https://iadefensa.com/solutions/awagam-chromium/) · [Middleman Alerter](https://iadefensa.com/solutions/middleman-alerter-chromium/) · [New Tab Traffic Randomizer](https://iadefensa.com/solutions/new-tab-traffic-randomizer-chromium/) · [Searcher](https://iadefensa.com/solutions/searcher-chromium/) · [more](https://iadefensa.com/solutions/)
+* Resources for quality web development: [Articles](https://meiert.com/topics/development/) · [Books](https://meiert.com/topics/books/) · [News](https://dxsrc.org/) · [Terminology](https://webglossary.info/)

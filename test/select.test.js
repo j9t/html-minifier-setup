@@ -102,7 +102,7 @@ describe('`customize`', () => {
     assert.deepStrictEqual(result.evaluations.filter((item) => item.reasons.some((reason) => reason.level === 'render')).map((item) => item.name), []);
     assert.strictEqual(result.renderedSame, false);
     assert.match(result.notes.join('\n'), /index\.html: Looks different with the kept options alone/);
-    assert.doesNotMatch(result.notes.join('\n'), /maximum number of rounds/);
+    assert.doesNotMatch(result.notes.join('\n'), /rounds of setting options aside/);
   });
 
   test('Render-checks pages sharing an ID with one that kept options make look different', async () => {
@@ -351,6 +351,68 @@ describe('`customize`', () => {
     assert.ok(result.notes.some((note) => /^poem\.html: .*Navigation timeout/.test(note)), result.notes.join('\n'));
     assert.strictEqual(evaluation(result, 'removeComments').status, 'accepted');
     assert.ok(result.presets.every((preset) => preset.inconclusive === 1));
+  });
+
+  test('Render-checks options against the pages minified without options, noting where those look different', async () => {
+    // Removing `htmlmin:ignore` comments, as HTML Minifier does without options, looks different
+    const page = createPage({ id: 'ignore.html', html: '<p>a <!-- htmlmin:ignore -->b<!-- htmlmin:ignore -->\n\n<!-- c --><p>d</p>', resources: {} });
+    const renderer = {
+      /** @param {import('../src/pages.js').Page} reference @param {string} html */
+      async compare(reference, html) {
+        const equal = reference.html.includes('htmlmin:ignore') === html.includes('htmlmin:ignore');
+        return equal ? { equal: true, reasons: [], notes: [] } : { equal: false, reasons: ['Looks different at 800×600'], notes: [] };
+      },
+      async close() {}
+    };
+    const result = await customize([page], { renderer, presets: false });
+    assert.strictEqual(evaluation(result, 'removeComments').status, 'accepted');
+    assert.ok(result.notes.some((note) => /^ignore\.html: HTML Minifier changes it even without options \(e\.g\., by removing `htmlmin:ignore` comments\)—Looks different at 800×600; options were render-checked against that$/.test(note)), result.notes.join('\n'));
+    assert.strictEqual(result.renderedSame, false);
+  });
+
+  test('Keeps from calling pages the same where comparing them with HTML Minifier’s output without options failed, noting why', async () => {
+    const page = createPage({ id: 'ignore.html', html: '<p>a <!-- htmlmin:ignore -->b<!-- htmlmin:ignore -->\n\n<!-- c --><p>d</p>', resources: {} });
+    const renderer = {
+      /** @param {import('../src/pages.js').Page} reference */
+      async compare(reference) {
+        if (reference.html.includes('htmlmin:ignore')) throw new Error('Navigation timeout');
+        return { equal: true, reasons: [], notes: ['Text differs between loads at 800×600, so text wasn’t compared'] };
+      },
+      async close() {}
+    };
+    const result = await customize([page], { renderer, presets: false });
+    assert.strictEqual(evaluation(result, 'removeComments').status, 'accepted');
+    assert.strictEqual(result.renderedSame, false);
+    assert.ok(result.notes.some((note) => /^ignore\.html: .*Navigation timeout/.test(note)), result.notes.join('\n'));
+    assert.ok(result.notes.includes('ignore.html: Couldn’t tell whether HTML Minifier changes it even without options; options were render-checked against its output without them'), result.notes.join('\n'));
+  });
+
+  test('Tells how far elements move, where that is all that differs', async () => {
+    const renderer = {
+      /** @param {import('../src/pages.js').Page} _page @param {string} html */
+      async compare(_page, html) {
+        return html.includes('</p>') ? { equal: true, reasons: [], notes: [] } : { equal: false, reasons: ['Moves elements by up to 4 px at 800×600 (e.g., p)'], notes: [], shift: 4 };
+      },
+      async close() {}
+    };
+    const result = await customize(pageHome, { renderer });
+    const optional = evaluation(result, 'removeOptionalTags');
+    assert.strictEqual(optional.status, 'rejected');
+    assert.ok(optional.reasons.some((reason) => reason.level === 'render' && reason.shift === 4));
+    assert.strictEqual(result.presets.find((preset) => preset.name === 'comprehensive')?.shift, 4);
+    assert.strictEqual(result.presets.find((preset) => preset.name === 'conservative')?.shift, null);
+  });
+
+  test('Reports files that didn’t load in the render check, no longer finding the configuration to look the same', async () => {
+    const renderer = {
+      async compare() {
+        return { equal: true, inconclusive: false, reasons: [], notes: [], failed: ['https://cdn.example/a.css'] };
+      },
+      async close() {}
+    };
+    const result = await customize(pageHome, { renderer, presets: false });
+    assert.deepStrictEqual(result.failed, ['https://cdn.example/a.css']);
+    assert.strictEqual(result.renderedSame, false);
   });
 
   test('Reports files the render check didn’t get, no longer finding the configuration to look the same', async () => {
