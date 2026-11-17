@@ -8,7 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ### Fixed
 
-* Stopped blaming options for what HTML Minifier does anyway: Options are now render-checked against pages as HTML Minifier puts them out without options (e.g., without `htmlmin:ignore` comments), not as written, which had made every option look different where that alone did
+* Stopped attributing options for what HTML Minifier does anyway: Options are now render-checked against pages as HTML Minifier puts them out without options (e.g., without `htmlmin:ignore` comments), not as written, which had made every option look different where that alone did
 * Stopped taking anti-aliasing for a difference: Screenshots are compared beyond anti-aliasing, as text that moves by less than a pixel rasterizes differently, and moves of less than a pixel are ignored, while what looks different without moving (e.g., colors) still counts
 * Stopped taking whitespace that only shows in text for a difference (e.g., between flex items), while words running together or apart still count where pages look different
 * Stopped showing the configuration matching the pages where options that save something were rejected, where it read like an alternative to them
