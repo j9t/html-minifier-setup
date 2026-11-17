@@ -57,7 +57,7 @@ npx html-minifier --input-dir ./dist --output-dir ./dist
 
 HTML Minifier Setup is meant to be run, which is why it has no programmatic API. For scripts and CI, use `--json` (which prints the full result) or `-o` (which writes the configuration).
 
-## How it works
+## How It Works
 
 1. **Each option on its own:** Every candidate option is run on every page and measured against output without it. Options that change nothing (“no effect,” or “in effect already” where the page has what they act on in the form they produce), or don’t save anything by the chosen metric (“no gain”), are left out. What an option changes is then checked against what the page relies on (see below).
 2. **All recommended options together, rendered:** Pages are rendered as HTML Minifier puts them out without options (twice, to tell what differs between loads) and as minified, in Chromium (or Chrome or Edge) at each viewport, and compared by screenshot, text, and script errors. That way, options aren’t attributed for what HTML Minifier does anyway (e.g., removing `htmlmin:ignore` comments); where that alone looks different from the pages as written, the report notes it. Screenshots are compared beyond anti-aliasing, as text that moves by less than a pixel rasterizes differently, and text regardless of whitespace that doesn’t show (e.g., between flex items), while words running together or apart count. New script errors are confirmed by loading the minified page again, as some (e.g., of embeds) come and go. Files from other origins (e.g., CDNs) are fetched once for all loads, and the report names those that didn’t load. Where rendering differs, options are rendered on their own to find the culprit; where none breaks rendering on its own, options are added by savings until rendering holds.
@@ -114,7 +114,7 @@ npm test
 
 Runs the type check (`tsc`) and then the suites in test/. Render tests skip where no browser is installed (`npx playwright install chromium` installs one). `npm run lint` covers the rest.
 
-### Equivalence check
+### Equivalence Check
 
 With an [HTML Minifier](https://github.com/j9t/html-minifier) checkout next to this one (../html-minifier), runs also use HTML Minifier’s equivalence check (test/equivalence/ there), which finds output that means something else to browsers than its source—HTML Minifier bugs rather than what a site relies on. Options whose output it flags don’t fit, and the report names the check and the HTML Minifier versions involved. It covers the options the check models.
 
