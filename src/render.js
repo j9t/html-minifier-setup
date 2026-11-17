@@ -7,7 +7,7 @@ import http from 'node:http';
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import { isInside } from './pages.js';
-import { looksSame } from './screenshots.js';
+import { differencesOutside, looksSame } from './screenshots.js';
 
 /**
  * @typedef {object} Verdict
@@ -224,6 +224,30 @@ export function shiftOf(before, after) {
 }
 
 /**
+ * Where the innermost elements that moved or changed size were and went, a pixel around, as what
+ * moving them can change on screen
+ * @param {Box[]} before
+ * @param {Box[]} after Matching `before`, as where `shiftOf` finds a shift
+ */
+export function regionsMoved(before, after) {
+  /** @type {[Box, Box][]} */
+  const moved = before.flatMap((box, index) => {
+    const other = /** @type {Box} */ (after[index]);
+    return box.x === other.x && box.y === other.y && box.width === other.width && box.height === other.height ? [] : [/** @type {[Box, Box]} */ ([box, other])];
+  });
+  /** @param {Box} outer @param {Box} inner */
+  const contains = (outer, inner) => inner.x >= outer.x && inner.y >= outer.y && inner.x + inner.width <= outer.x + outer.width && inner.y + inner.height <= outer.y + outer.height;
+  // By later elements alone, as descendants follow ancestors, which may share their boxes
+  return moved
+    .filter(([box], index) => !moved.slice(index + 1).some(([other]) => contains(box, other)))
+    .map(([box, other]) => {
+      const [left, top] = [Math.min(box.x, other.x) - 1, Math.min(box.y, other.y) - 1];
+      const [right, bottom] = [Math.max(box.x + box.width, other.x + other.width) + 1, Math.max(box.y + box.height, other.y + other.height) + 1];
+      return { x: left, y: top, width: right - left, height: bottom - top };
+    });
+}
+
+/**
  * The original’s two captures as one, with what stayed the same between loads, every file either
  * load didn’t get, and every script error either load had
  * @param {Capture} first
@@ -397,14 +421,17 @@ export async function createRenderer({ viewports = VIEWPORTS_DEFAULT, timeout = 
         await answered(() => tab.route((target) => /^https?:$/.test(target.protocol) && target.origin !== urlRequested.origin, async (route) => {
           const request = route.request();
           if (request.method() !== 'GET') return route.continue();
-          let pending = stored.get(request.url());
+          // By origin, too, as answers may depend on it (e.g., CORS headers)
+          const origin = await request.headerValue('origin');
+          const key = origin ? `${origin} ${request.url()}` : request.url();
+          let pending = stored.get(key);
           if (!pending) {
             pending = route.fetch({ timeout }).then(async (response) => ({
               status: response.status(),
               headers: Object.fromEntries(Object.entries(response.headers()).filter(([name]) => !HEADERS_TRANSFER.has(name))),
               body: await response.body()
             }), () => null);
-            stored.set(request.url(), pending);
+            stored.set(key, pending);
           }
           const response = await pending;
           return response ? route.fulfill(response) : route.abort('failed');
@@ -499,12 +526,15 @@ export async function createRenderer({ viewports = VIEWPORTS_DEFAULT, timeout = 
       let shift = null;
       if (looksDifferent) {
         const moved = shiftOf(before.boxes, after.boxes);
-        // Moves of less than a pixel only show in anti-aliasing, while what looks different
+        // Only where what looks different is where elements moved, while what looks different
         // without moving (e.g., colors) shows as such
-        const allowed = moved && moved.shift > 0 && !textDiffers && (moved.shift < 1 || moved.shift <= allowShift);
+        const explained = Boolean(moved && moved.shift > 0 && differencesOutside(before.shot, after.shot, regionsMoved(before.boxes, after.boxes)) === 0);
+        // Moves of less than a pixel only show in anti-aliasing
+        const allowed = moved && explained && !textDiffers && (moved.shift < 1 || moved.shift <= allowShift);
         if (moved && moved.shift >= 1 && !allowed) {
-          shift = Math.ceil(moved.shift);
-          reasons.push(`Moves elements by up to ${shift} px at ${at} (e.g., ${moved.path})`);
+          const pixels = Math.ceil(moved.shift);
+          if (explained) shift = pixels;
+          reasons.push(`Moves elements by up to ${pixels} px at ${at} (e.g., ${moved.path})${explained ? '' : ', and looks different beyond that'}`);
         } else if (!allowed) {
           reasons.push(`Looks different at ${at}`);
         }

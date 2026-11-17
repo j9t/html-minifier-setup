@@ -7,7 +7,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createPage, loadPages } from '../src/pages.js';
-import { combineOriginals, createGuard, createLimit, createRenderer, playwrightCli, serve, shiftOf } from '../src/render.js';
+import { combineOriginals, createGuard, createLimit, createRenderer, playwrightCli, regionsMoved, serve, shiftOf } from '../src/render.js';
 
 const dirSite = path.join(path.dirname(fileURLToPath(import.meta.url)), 'fixtures', 'site');
 const { renderer, reason } = await createRenderer({ viewports: [{ width: 800, height: 600 }] });
@@ -266,6 +266,12 @@ describe('`createRenderer`', { skip: renderer ? false : `No browser: ${reason}` 
     assert.strictEqual(verdict.shift, null);
   });
 
+  test('Finds what looks different beyond elements moving by less than a pixel different', async () => {
+    const page = createPage({ id: 'n.html', html: '<!doctype html><p style="margin-left: 0">One</p><p style="color: #000">Two</p>' });
+    const verdict = await r.compare(page, '<!doctype html><p style="margin-left: 0.4px">One</p><p style="color: #222">Two</p>');
+    assert.deepStrictEqual(verdict.reasons, ['Looks different at 800×600']);
+  });
+
   test('Finds what looks different without moving different', async () => {
     const page = createPage({ id: 'j.html', html: '<!doctype html><p style="color: #000">Some text</p>' });
     const verdict = await r.compare(page, '<!doctype html><p style="color: #222">Some text</p>');
@@ -284,6 +290,30 @@ describe('`createRenderer`', { skip: renderer ? false : `No browser: ${reason}` 
       const page = createPage({ id: 'm.html', html: `<!doctype html><div style="height: 3000px"></div><img src=http://127.0.0.1:${port}/a.svg alt="" loading=lazy><p>End` });
       const verdict = await r.compare(page, `<!doctype html><div style="height: 3000px"></div><img src=http://127.0.0.1:${port}/a.svg alt=""><p>End`);
       assert.deepStrictEqual(verdict.reasons, []);
+    } finally {
+      server.close();
+    }
+  });
+
+  test('Fetches files from other origins once per origin requesting them, as answers may depend on it', async () => {
+    /** @type {Set<string>} */
+    const origins = new Set();
+    const server = http.createServer((request, response) => {
+      const origin = String(request.headers.origin ?? '');
+      origins.add(origin);
+      response.writeHead(200, { 'access-control-allow-origin': origin, 'content-type': 'text/plain' }).end('fetched');
+    });
+    await new Promise((resolve) => server.listen(0, '127.0.0.1', () => resolve(undefined)));
+    try {
+      const { port } = /** @type {import('node:net').AddressInfo} */ (server.address());
+      const html = `<!doctype html><p id=out>waiting</p><script>fetch("http://127.0.0.1:${port}/data").then((response) => response.text()).then((text) => { document.querySelector("#out").textContent = text; })</script>`;
+      // From different origins: served locally, and at a URL of its own
+      const pages = [createPage({ id: 'p.html', html }), createPage({ id: 'q.html', html, url: 'http://localhost:9/q.html' })];
+      for (const page of pages) {
+        const verdict = await r.compare(page, `${html}<!-- changed -->`);
+        assert.strictEqual(verdict.equal, true);
+      }
+      assert.strictEqual(origins.size, 2);
     } finally {
       server.close();
     }
@@ -324,9 +354,22 @@ describe('`createRenderer` with allowed shifts', { skip: renderer ? false : `No 
       assert.deepStrictEqual((await rendererShifting.compare(page, '<!doctype html><p style="margin-left: 8px">One two</p>')).reasons, []);
       assert.match((await rendererShifting.compare(page, '<!doctype html><p style="margin-left: 8px">One three</p>')).reasons.join(), /Text differs/);
       assert.match((await rendererShifting.compare(page, '<!doctype html><p style="margin-left: 8px">One<span>two</span></p>')).reasons.join(), /Text differs/);
+      const pageTwo = createPage({ id: 'o.html', html: '<!doctype html><p style="margin-left: 0">One</p><p style="color: #000">Two</p>' });
+      const verdict = await rendererShifting.compare(pageTwo, '<!doctype html><p style="margin-left: 8px">One</p><p style="color: #222">Two</p>');
+      assert.deepStrictEqual(verdict.reasons, ['Moves elements by up to 8 px at 800×600 (e.g., p), and looks different beyond that']);
+      assert.strictEqual(verdict.shift, null);
     } finally {
       await found.renderer?.close();
     }
+  });
+});
+
+describe('`regionsMoved`', () => {
+  test('Returns where the innermost elements that moved were and went, a pixel around', () => {
+    const outer = { path: 'main', x: 0, y: 0, width: 100, height: 100 };
+    const inner = { path: 'main > p', x: 10, y: 10, width: 20, height: 10 };
+    const still = { path: 'main > div', x: 50, y: 50, width: 10, height: 10 };
+    assert.deepStrictEqual(regionsMoved([outer, inner, still], [{ ...outer, x: 4 }, { ...inner, x: 14 }, still]), [{ x: 9, y: 9, width: 26, height: 12 }]);
   });
 });
 

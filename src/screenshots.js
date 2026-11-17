@@ -83,7 +83,8 @@ export function decodePng(buffer) {
 /**
  * Whether the pixel of one image lies, channel by channel, within the range of the pixel and its
  * neighbors in the other (with some leeway on edges), as anti-aliased edges do where shapes move
- * by less than a pixel
+ * by less than a pixel—without changing by as much as its neighbors contrast, as only moves of
+ * a pixel or more flip pixels (e.g., of inverted patterns)
  * @param {Image} image
  * @param {Image} other
  * @param {number} x
@@ -107,6 +108,8 @@ function withinNeighbors(image, other, x, y) {
     }
     const tolerance = max - min >= EDGE_CONTRAST ? EDGE_TOLERANCE : 0;
     if (value < min - tolerance || value > max + tolerance) return false;
+    const change = Math.abs(value - /** @type {number} */ (other.data[at + channel]));
+    if (change && change >= max - min) return false;
   }
   return true;
 }
@@ -115,8 +118,9 @@ function withinNeighbors(image, other, x, y) {
  * The pixels that differ beyond anti-aliasing, or null where the images differ in size or format
  * @param {Image} a
  * @param {Image} b
+ * @param {(x: number, y: number) => boolean} [accounted] Pixels to leave out (e.g., where elements moved)
  */
-export function countDifferences(a, b) {
+export function countDifferences(a, b, accounted = () => false) {
   if (a.width !== b.width || a.height !== b.height || a.channels !== b.channels) return null;
   const { width, height, channels } = a;
   let count = 0;
@@ -125,10 +129,30 @@ export function countDifferences(a, b) {
       const at = (y * width + x) * channels;
       let same = true;
       for (let channel = 0; channel < channels && same; channel++) same = a.data[at + channel] === b.data[at + channel];
-      if (!same && !(withinNeighbors(a, b, x, y) && withinNeighbors(b, a, x, y))) count++;
+      if (!same && !accounted(x, y) && !(withinNeighbors(a, b, x, y) && withinNeighbors(b, a, x, y))) count++;
     }
   }
   return count;
+}
+
+/**
+ * The pixels two screenshots differ in beyond anti-aliasing, leaving out the given regions,
+ * or null where they can’t be compared
+ * @param {Buffer} a
+ * @param {Buffer} b
+ * @param {{x: number, y: number, width: number, height: number}[]} regions
+ */
+export function differencesOutside(a, b, regions) {
+  const [imageA, imageB] = [decodePng(a), decodePng(b)];
+  if (!imageA || !imageB) return null;
+  const { width, height } = imageA;
+  const mask = new Uint8Array(width * height);
+  for (const region of regions) {
+    const [left, top] = [Math.max(0, Math.floor(region.x)), Math.max(0, Math.floor(region.y))];
+    const [right, bottom] = [Math.min(width, Math.ceil(region.x + region.width)), Math.min(height, Math.ceil(region.y + region.height))];
+    for (let y = top; y < bottom; y++) mask.fill(1, y * width + left, y * width + Math.max(left, right));
+  }
+  return countDifferences(imageA, imageB, (x, y) => mask[y * width + x] === 1);
 }
 
 /**

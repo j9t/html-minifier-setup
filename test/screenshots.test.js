@@ -84,6 +84,17 @@ describe('`countDifferences`', () => {
     assert.strictEqual(countDifferences(before, after), 6);
   });
 
+  test('Counts patterns that invert, as pixels moving by less than a pixel don’t flip', () => {
+    const checkerboard = (offset = 0) => gray([0, 1, 2, 3].map((y) => [0, 1, 2, 3].map((x) => (x + y + offset) % 2 ? 255 : 0)));
+    assert.strictEqual(countDifferences(checkerboard(), checkerboard(1)), 16);
+  });
+
+  test('Leaves out pixels that are accounted for', () => {
+    const before = gray([[0, 0, 0, 0], [0, 0, 0, 0]]);
+    const after = gray([[255, 0, 0, 255], [0, 0, 0, 0]]);
+    assert.strictEqual(countDifferences(before, after, (x) => x < 2), 1);
+  });
+
   test('Returns null for images of different sizes', () => {
     assert.strictEqual(countDifferences(gray([[0, 0]]), gray([[0], [0]])), null);
   });

@@ -9,10 +9,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 ### Fixed
 
 * Stopped attributing options for what HTML Minifier does anyway: Options are now render-checked against pages as HTML Minifier puts them out without options (e.g., without `htmlmin:ignore` comments), not as written, which had made every option look different where that alone did
-* Stopped taking anti-aliasing for a difference: Screenshots are compared beyond anti-aliasing, as text that moves by less than a pixel rasterizes differently, and moves of less than a pixel are ignored, while what looks different without moving (e.g., colors) still counts
+* Stopped taking anti-aliasing for a difference: Screenshots are compared beyond anti-aliasing, as text that moves by less than a pixel rasterizes differently, and moves of less than a pixel are ignored where they account for what looks different, while what looks different without moving (e.g., colors) still counts
 * Stopped taking whitespace that only shows in text for a difference (e.g., between flex items), while words running together or apart still count where pages look different
 * Stopped showing the configuration matching the pages where options that save something were rejected, where it read like an alternative to them
-* Got the same files from other origins (e.g., CDNs) in every load, fetching them once per run, rather than loading them anew each time
+* Got the same files from other origins (e.g., CDNs) in every load, fetching them once per run (and per origin requesting them), rather than loading them anew each time
 * Loaded lazy images before taking screenshots, which, by when lazy images had loaded, could look different between loads
 
 ### Added

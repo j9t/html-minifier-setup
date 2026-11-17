@@ -245,6 +245,7 @@ export async function customize(pagesGiven, settings = {}) {
   // comments)
   /** @type {Map<import('./pages.js').Page, import('./pages.js').Page>} */
   const references = new Map();
+  // Whether any page looks different, or may, minified without options
   let referencesDiffer = false;
   if (renderer) {
     await Promise.all(pages.map(async (page) => {
@@ -252,8 +253,13 @@ export async function customize(pagesGiven, settings = {}) {
       if (html === page.html) return;
       references.set(page, { ...page, html });
       const verdict = await compareWith(page, html);
-      if (verdict.equal || verdict.inconclusive) return;
+      for (const note of verdict.notes) notes.add(`${page.id}: ${note}`);
+      if (verdict.equal) return;
       referencesDiffer = true;
+      if (verdict.inconclusive) {
+        notes.add(`${page.id}: Couldn’t tell whether HTML Minifier changes it even without options; options were render-checked against its output without them`);
+        return;
+      }
       const cause = page.html.includes('htmlmin:ignore') ? ' (e.g., by removing `htmlmin:ignore` comments)' : '';
       notes.add(`${page.id}: HTML Minifier changes it even without options${cause}—${verdict.reasons[0]}; options were render-checked against that`);
     }));

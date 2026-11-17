@@ -370,6 +370,23 @@ describe('`customize`', () => {
     assert.strictEqual(result.renderedSame, false);
   });
 
+  test('Keeps from calling pages the same where comparing them with HTML Minifier’s output without options failed, noting why', async () => {
+    const page = createPage({ id: 'ignore.html', html: '<p>a <!-- htmlmin:ignore -->b<!-- htmlmin:ignore -->\n\n<!-- c --><p>d</p>', resources: {} });
+    const renderer = {
+      /** @param {import('../src/pages.js').Page} reference */
+      async compare(reference) {
+        if (reference.html.includes('htmlmin:ignore')) throw new Error('Navigation timeout');
+        return { equal: true, reasons: [], notes: ['Text differs between loads at 800×600, so text wasn’t compared'] };
+      },
+      async close() {}
+    };
+    const result = await customize([page], { renderer, presets: false });
+    assert.strictEqual(evaluation(result, 'removeComments').status, 'accepted');
+    assert.strictEqual(result.renderedSame, false);
+    assert.ok(result.notes.some((note) => /^ignore\.html: .*Navigation timeout/.test(note)), result.notes.join('\n'));
+    assert.ok(result.notes.includes('ignore.html: Couldn’t tell whether HTML Minifier changes it even without options; options were render-checked against its output without them'), result.notes.join('\n'));
+  });
+
   test('Tells how far elements move, where that is all that differs', async () => {
     const renderer = {
       /** @param {import('../src/pages.js').Page} _page @param {string} html */
