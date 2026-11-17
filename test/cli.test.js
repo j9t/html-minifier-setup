@@ -204,6 +204,14 @@ describe('CLI', () => {
     assert.doesNotMatch(stdout, /equivalence/);
   });
 
+  test('Fails on shifts that aren’t whole pixels', async () => {
+    for (const value of ['-1', '1.5', 'a']) {
+      const { code, stderr } = await run([dirSite, `--allow-shift=${value}`]);
+      assert.strictEqual(code, 1, value);
+      assert.match(stderr, /Not a whole number of pixels/, value);
+    }
+  });
+
   test('Fails on missing or empty viewports', async () => {
     for (const value of ['', '0x800', '1280x0']) {
       const { code, stderr } = await run([dirSite, '--viewports', value]);

@@ -4,6 +4,24 @@ All notable changes to HTML Minifier Setup (HMS) are documented in this file, wh
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0] - 2026-11-17
+
+### Fixed
+
+* Stopped blaming options for what HTML Minifier does anyway: Options are now render-checked against pages as HTML Minifier puts them out without options (e.g., without `htmlmin:ignore` comments), not as written, which had made every option look different where that alone did
+* Stopped taking anti-aliasing for a difference: Screenshots are compared beyond anti-aliasing, as text that moves by less than a pixel rasterizes differently, and moves of less than a pixel are ignored, while what looks different without moving (e.g., colors) still counts
+* Stopped taking whitespace that only shows in text for a difference (e.g., between flex items), while words running together or apart still count where pages look different
+* Stopped showing the configuration matching the pages where options that save something were rejected, where it read like an alternative to them
+* Got the same files from other origins (e.g., CDNs) in every load, fetching them once per run, rather than loading them anew each time
+* Loaded lazy images before taking screenshots, which, by when lazy images had loaded, could look different between loads
+
+### Added
+
+* Told how far elements move where that is all an option (or preset) changes (e.g., “Moves elements by up to 10 px at 1280×800 (e.g., header > nav > ul > li)”), rather than only that pages look different
+* Added `--allow-shift <px>` to accept moves up to the given pixels where nothing else changes, not even spaces between words; the report suggests it where options only move elements
+* Named style sheets, scripts, and fonts that didn’t load in the render check (`failed` with `--json`), no longer calling the configuration the same as the original pages
+* Listed options with the same details once, together, rather than repeating the details for each
+
 ## [0.5.0] - 2026-11-16
 
 ### Fixed

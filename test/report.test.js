@@ -25,6 +25,8 @@ const resultOf = (final, evaluations = []) => ({
   notes: [],
   presets: [],
   blocked: [],
+  failed: [],
+  allowShift: 0,
   renderedSame: false,
   viewports: [],
   browser: null
@@ -87,6 +89,20 @@ describe('`formatReport`', () => {
     assert.match(reportServed, /: The recommended configuration looks the same as the original pages\n/);
   });
 
+  test('Names files that didn’t load in the render check, no longer calling pages the same', () => {
+    const result = resultOf({ raw: 900, gzip: 400, brotli: 300 });
+    result.rendered = true;
+    result.failed = ['https://cdn.example/a.css'];
+    const report = formatReport(result);
+    assert.match(report, /: The recommended configuration may not look the same as the original pages, as files didn’t load\n• Rendered without 1 file that didn’t load \(https:\/\/cdn\.example\/a\.css\), which may change how pages look\n\n/);
+  });
+
+  test('Names the shift allowed, if any', () => {
+    const result = resultOf(SIZES);
+    Object.assign(result, { rendered: true, renderedSame: true, viewports: ['800×600'], browser: 'Chrome 157', allowShift: 12 });
+    assert.match(formatReport(result), /^• Render-checked in Chrome 157 at 800×600, allowing elements to move by up to 12 px: The recommended/m);
+  });
+
   test('Marks the text of lines that warn the rendering may differ in yellow, where colored', () => {
     const result = resultOf({ raw: 900, gzip: 400, brotli: 300 });
     result.rendered = true;
@@ -135,6 +151,12 @@ describe('`formatReport`', () => {
     assert.match(report, /conservative .*inconclusive on 3 of 3 pages/);
     assert.doesNotMatch(report, /looks the same/);
     assert.match(report, /comprehensive .*looks different on 1 of 3 pages, inconclusive on 1/);
+  });
+
+  test('Says how far presets move elements, where that is all that differs', () => {
+    const result = resultOf({ raw: 900, gzip: 400, brotli: 300 });
+    result.presets = [{ name: 'comprehensive', size: 380, failing: 1, inconclusive: 0, errors: 0, rejected: [], shift: 10 }];
+    assert.match(formatReport(result), /comprehensive +380 B +5\.0% smaller +looks different on 1 of 1 page \(moves elements by up to 10 px\)/);
   });
 });
 
@@ -220,6 +242,22 @@ describe('`formatConfiguration`', () => {
     assert.match(formatConfiguration(resultOf(SIZES, [{ name: 'collapseWhitespace', status: 'no-effect' }, { status: 'no-effect' }])), /^No configuration to recommend: These pages look minified already\.$/);
   });
 
+  test('Points to `--allow-shift` where options that save something only move elements', () => {
+    const reasons = [{ level: /** @type {const} */ ('render'), page: 'a.html', message: 'Moves elements by up to 4 px at 1280×800 (e.g., ul > li)', shift: 4 }, { level: /** @type {const} */ ('render'), page: 'b.html', message: 'Moves elements by up to 10 px at 1280×800 (e.g., ul > li)', shift: 10 }];
+    const result = resultOf(SIZES, [{ name: 'collapseWhitespace', status: 'rejected', savings: 40, reasons }]);
+    assert.strictEqual(formatConfiguration(result), 'No configuration to recommend: The options that save something only move elements on these pages, by up to 10 px—`--allow-shift 10` accepts that.');
+    assert.match(formatReport(result), /collapseWhitespace \(doesn’t fit\)\n {4}Why: .*\n {4}Only moves elements, by up to 10 px—`--allow-shift 10` accepts that\n/);
+    const mixed = resultOf(SIZES, [{ name: 'collapseWhitespace', status: 'rejected', savings: 40, reasons: [...reasons, { level: 'render', page: 'c.html', message: 'Looks different at 1280×800' }] }]);
+    assert.doesNotMatch(formatReport(mixed), /--allow-shift/);
+    assert.strictEqual(formatConfiguration(mixed), 'No configuration to recommend: The options that save something don’t fit these pages.');
+  });
+
+  test('Offers no configuration matching the pages where options that save something don’t fit, as it would read as an alternative', () => {
+    const result = resultOf(SIZES, [{ name: 'collapseWhitespace', status: 'rejected', savings: 40 }, { name: 'removeAttributeQuotes', status: 'in-effect', options: { removeAttributeQuotes: true } }]);
+    assert.strictEqual(toMatchingConfig(result), null);
+    assert.strictEqual(formatConfiguration(result), 'No configuration to recommend: The options that save something don’t fit these pages.');
+  });
+
   test('Offers the configuration matching pages that look minified, where nothing is recommended', () => {
     const result = resultOf(SIZES, [{ name: 'collapseWhitespace', status: 'in-effect', options: { collapseWhitespace: true } }, { name: 'removeAttributeQuotes', status: 'in-effect', options: { removeAttributeQuotes: true } }, { status: 'no-effect' }]);
     result.options = { caseSensitive: true };
@@ -276,6 +314,25 @@ describe('`formatReport` details', () => {
     assert.match(report, /Risk \(c\.html, d\.html, e\.html, and 1 more\): Removes a comment/);
     assert.strictEqual(report.match(/Text differs/g)?.length, 1);
     assert.match(report, /-v/);
+  });
+
+  test('Gives the largest move as example, where elements move', () => {
+    const moves = [4, 231, 11].map((shift, index) => ({ level: /** @type {const} */ ('render'), page: `${index}.html`, message: `Moves elements by up to ${shift} px at 390×844 (e.g., main)`, shift }));
+    assert.match(formatReport(resultOf(SIZES, [{ name: 'collapseWhitespace', status: 'rejected', reasons: moves }])), /e\.g\., 1\.html: Moves elements by up to 231 px/);
+  });
+
+  test('Lists options with the same details once, together', () => {
+    const reason = { level: /** @type {const} */ ('render'), page: 'a.html', message: 'Looks different at 1280×800' };
+    const report = formatReport(resultOf(SIZES, [
+      { name: 'removeComments', status: 'rejected', reasons: [reason] },
+      { name: 'collapseWhitespace', status: 'rejected', reasons: [reason] },
+      { name: 'sortAttributes', status: 'rejected', reasons: [reason] },
+      { name: 'decodeEntities', status: 'rejected', reasons: [{ ...reason, page: 'b.html' }] }
+    ]));
+    assert.match(report, /\n {2}removeComments, sortAttributes \(doesn’t fit\)\n {4}Why: Not meant to change/);
+    assert.match(report, /\n {2}collapseWhitespace \(doesn’t fit\)\n {4}Why: Collapses whitespace/);
+    assert.match(report, /\n {2}decodeEntities \(doesn’t fit\)\n/);
+    assert.strictEqual(report.match(/Looks different on 1 page \(a\.html\)/g)?.length, 2);
   });
 
   test('Lists every reason if verbose', () => {

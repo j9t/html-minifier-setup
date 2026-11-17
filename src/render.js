@@ -7,6 +7,7 @@ import http from 'node:http';
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import { isInside } from './pages.js';
+import { looksSame } from './screenshots.js';
 
 /**
  * @typedef {object} Verdict
@@ -15,6 +16,8 @@ import { isInside } from './pages.js';
  * @prop {string[]} reasons Why the minified page isn’t equal
  * @prop {string[]} notes What limited the comparison
  * @prop {string[]} [blocked] Files pages requested but didn’t get, as symbolic links lead them outside the site
+ * @prop {string[]} [failed] Style sheets, scripts, and fonts that didn’t load
+ * @prop {number | null} [shift] How far elements move (or change size), in pixels, where that is all that differs
  */
 
 /**
@@ -22,13 +25,16 @@ import { isInside } from './pages.js';
  * @prop {(page: import('./pages.js').Page, html: string) => Promise<Verdict>} compare
  * @prop {() => Promise<void>} close
  * @prop {Viewport[]} [viewports]
+ * @prop {number} [allowShift] Pixels elements may move by
  * @prop {string} [browser] Name and major version
  */
 
 /** @typedef {{name: string, channel?: string}} Browser */
 
 /** @typedef {{width: number, height: number}} Viewport */
-/** @typedef {{shot: Buffer, text: string, errors: string[], blocked: string[]}} Capture */
+/** @typedef {{path: string, x: number, y: number, width: number, height: number}} Box */
+/** @typedef {{shot: Buffer, text: string, errors: string[], blocked: string[], failed: string[], boxes: Box[]}} Capture */
+/** @typedef {{status: number, headers: Record<string, string>, body: Buffer} | null} Stored */
 
 // @@ Probe a higher or core-based default, weighing speed against memory and inconclusive renders
 export const CONCURRENCY_DEFAULT = 4;
@@ -55,6 +61,12 @@ const TYPES = {
   '.woff': 'font/woff',
   '.woff2': 'font/woff2'
 };
+
+// Resource types whose loading failures change how pages look
+const TYPES_FAILING = new Set(['font', 'script', 'stylesheet']);
+
+// Headers that describe the transfer rather than the stored body
+const HEADERS_TRANSFER = new Set(['content-encoding', 'content-length', 'transfer-encoding']);
 
 /** @param {Viewport} viewport */
 const describeViewport = ({ width, height }) => `${width}×${height}`;
@@ -181,15 +193,51 @@ const errorsBeyond = (known, errors) => {
 };
 
 /**
+ * Text without whitespace, as whitespace between elements may not show (e.g., between flex items)
+ * @param {string} text
+ */
+const withoutWhitespace = (text) => text.replace(/\s+/g, '');
+
+/**
+ * Text with whitespace collapsed, as for words that run together or apart
+ * @param {string} text
+ */
+const collapsed = (text) => text.replace(/\s+/g, ' ').trim();
+
+/**
+ * How far the elements of one capture moved or changed size in the other, in pixels,
+ * with the element moving most, or null where elements were added or removed
+ * @param {Box[]} before
+ * @param {Box[]} after
+ * @returns {{shift: number, path: string} | null}
+ */
+export function shiftOf(before, after) {
+  if (before.length !== after.length) return null;
+  let found = { shift: 0, path: '' };
+  for (const [index, box] of before.entries()) {
+    const other = /** @type {Box} */ (after[index]);
+    if (box.path !== other.path) return null;
+    const shift = Math.max(Math.abs(box.x - other.x), Math.abs(box.y - other.y), Math.abs(box.width - other.width), Math.abs(box.height - other.height));
+    if (shift > found.shift) found = { shift, path: box.path };
+  }
+  return found;
+}
+
+/**
  * The original’s two captures as one, with what stayed the same between loads, every file either
  * load didn’t get, and every script error either load had
  * @param {Capture} first
  * @param {Capture} second
  */
 export const combineOriginals = (first, second) => ({
-  capture: { ...first, errors: [...first.errors, ...errorsBeyond(first.errors, second.errors)], blocked: [...new Set([...first.blocked, ...second.blocked])] },
-  stableShot: first.shot.equals(second.shot),
-  stableText: first.text === second.text
+  capture: {
+    ...first,
+    errors: [...first.errors, ...errorsBeyond(first.errors, second.errors)],
+    blocked: [...new Set([...first.blocked, ...second.blocked])],
+    failed: [...new Set([...first.failed, ...second.failed])]
+  },
+  stableShot: looksSame(first.shot, second.shot),
+  stableText: withoutWhitespace(first.text) === withoutWhitespace(second.text)
 });
 
 // Playwright’s Chromium, or else browsers people tend to have, as original and minified pages are
@@ -253,14 +301,15 @@ export function createLimit(limit) {
 
 /**
  * A renderer using the first browser that starts, or, where none does, why not
- * @param {{viewports?: Viewport[], timeout?: number, browsers?: Browser[], concurrency?: number, followLinks?: boolean}} [settings] `concurrency`: pages rendered at once; `followLinks`: as for `serve`
+ * @param {{viewports?: Viewport[], timeout?: number, browsers?: Browser[], concurrency?: number, followLinks?: boolean, allowShift?: number}} [settings] `concurrency`: pages rendered at once; `followLinks`: as for `serve`; `allowShift`: pixels elements may move or change size by, where nothing else differs
  * @returns {Promise<{renderer: Renderer | null, reason: string, missing?: boolean}>}
  */
-export async function createRenderer({ viewports = VIEWPORTS_DEFAULT, timeout = 30000, browsers = BROWSERS, concurrency = CONCURRENCY_DEFAULT, followLinks = false } = {}) {
+export async function createRenderer({ viewports = VIEWPORTS_DEFAULT, timeout = 30000, browsers = BROWSERS, concurrency = CONCURRENCY_DEFAULT, followLinks = false, allowShift = 0 } = {}) {
   if (!viewports.length || viewports.some(({ width, height }) => !(width >= 1 && height >= 1))) {
     throw new Error(`Invalid viewports: ${JSON.stringify(viewports)} (at least one, each at least 1×1)`);
   }
   if (!Number.isInteger(concurrency) || concurrency < 1) throw new Error(`Invalid concurrency: ${concurrency} (pages rendered at once, at least 1)`);
+  if (!Number.isInteger(allowShift) || allowShift < 0) throw new Error(`Invalid shift: ${allowShift} (pixels, at least 0)`);
   /** @type {typeof import('playwright') | null} */
   const playwright = await import('playwright').catch(() => null);
   if (!playwright) return { renderer: null, reason: 'Playwright isn’t installed' };
@@ -297,6 +346,9 @@ export async function createRenderer({ viewports = VIEWPORTS_DEFAULT, timeout = 
   const verdicts = new WeakMap();
   // Bounds all browser work, which is otherwise started at once
   const limit = createLimit(concurrency);
+  // Files from elsewhere (e.g., CDNs), fetched once, for all loads to get the same
+  /** @type {Map<string, Promise<Stored>>} */
+  const stored = new Map();
 
   /** @param {import('./pages.js').Page} page */
   async function urlOf(page) {
@@ -330,25 +382,66 @@ export async function createRenderer({ viewports = VIEWPORTS_DEFAULT, timeout = 
         tab.on('console', (message) => { if (message.type() === 'error') errors.push(message.text()); });
         /** @type {string[]} */
         const blocked = [];
-        if (!page.url) {
-          tab.on('response', (response) => {
-            const target = new URL(response.url());
-            if (response.status() === 403 && target.origin === urlRequested.origin) blocked.push(decodeURIComponent(target.pathname.slice(1)));
-          });
-        }
+        /** @type {string[]} */
+        const failed = [];
+        tab.on('response', (response) => {
+          const target = new URL(response.url());
+          if (!page.url && response.status() === 403 && target.origin === urlRequested.origin) {
+            blocked.push(decodeURIComponent(target.pathname.slice(1)));
+          } else if (response.status() >= 400 && TYPES_FAILING.has(response.request().resourceType())) {
+            failed.push(response.url());
+          }
+        });
+        tab.on('requestfailed', (request) => { if (TYPES_FAILING.has(request.resourceType())) failed.push(request.url()); });
+        // Before the page’s route, which, added later, takes precedence
+        await answered(() => tab.route((target) => /^https?:$/.test(target.protocol) && target.origin !== urlRequested.origin, async (route) => {
+          const request = route.request();
+          if (request.method() !== 'GET') return route.continue();
+          let pending = stored.get(request.url());
+          if (!pending) {
+            pending = route.fetch({ timeout }).then(async (response) => ({
+              status: response.status(),
+              headers: Object.fromEntries(Object.entries(response.headers()).filter(([name]) => !HEADERS_TRANSFER.has(name))),
+              body: await response.body()
+            }), () => null);
+            stored.set(request.url(), pending);
+          }
+          const response = await pending;
+          return response ? route.fulfill(response) : route.abort('failed');
+        }));
         await answered(() => tab.route((target) => target.href === urlRequested.href, (route) => route.fulfill({ status: 200, contentType: 'text/html; charset=utf-8', body: html })));
         await tab.goto(url, { waitUntil: 'load', timeout });
-        // For fonts and two frames, but not beyond the timeout, as either may never come
+        // For fonts, lazy images (which full-page screenshots show, but may not have loaded yet),
+        // and two frames, but not beyond the timeout, as any may never come
         await responsive(tab.evaluate(async (wait) => {
           const settled = (async () => {
+            const images = [...document.images].filter((image) => image.loading === 'lazy');
+            for (const image of images) image.loading = 'eager';
+            await Promise.all(images.map((image) => image.complete ? null : new Promise((resolve) => {
+              image.addEventListener('load', resolve, { once: true });
+              image.addEventListener('error', resolve, { once: true });
+            })));
             await document.fonts?.ready;
             await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
           })();
           await Promise.race([settled, new Promise((resolve) => setTimeout(resolve, wait))]);
         }, timeout), 2 * timeout);
         const shot = await tab.screenshot({ fullPage: true, animations: 'disabled', caret: 'hide', timeout });
-        const text = await responsive(tab.evaluate(() => document.body?.innerText ?? ''), timeout);
-        return { shot, text, errors, blocked };
+        const [text, boxes] = await responsive(tab.evaluate(() => {
+          /** @param {Element} element */
+          const name = (element) => `${element.localName}${element.id ? `#${element.id}` : ''}`;
+          /** @type {Box[]} */
+          const found = [];
+          for (const element of document.body?.querySelectorAll('*') ?? []) {
+            const { x, y, width, height } = element.getBoundingClientRect();
+            if (!width || !height) continue;
+            const names = [];
+            for (let current = /** @type {Element | null} */ (element); current && current !== document.body && names.length < 4; current = current.parentElement) names.unshift(name(current));
+            found.push({ path: names.join(' > '), x: x + scrollX, y: y + scrollY, width, height });
+          }
+          return /** @type {[string, Box[]]} */ ([document.body?.innerText ?? '', found]);
+        }), timeout);
+        return { shot, text, errors, blocked, failed: [...new Set(failed)], boxes };
       } finally {
         // Not waited for beyond the timeout, keeping the error the capture had, if any
         await answered(() => context.close()).catch(() => {});
@@ -399,10 +492,24 @@ export async function createRenderer({ viewports = VIEWPORTS_DEFAULT, timeout = 
       } else if (!stableText) {
         notes.push(`Text differs between loads at ${at}, so text wasn’t compared`);
       }
-      if (stableShot && !before.shot.equals(after.shot)) {
-        reasons.push(`Looks different at ${at}`);
+      const looksDifferent = stableShot && !looksSame(before.shot, after.shot);
+      // Words running together or apart count where the page looks different, too
+      const textDiffers = stableText && (withoutWhitespace(before.text) !== withoutWhitespace(after.text) || (looksDifferent && collapsed(before.text) !== collapsed(after.text)));
+      /** @type {number | null} */
+      let shift = null;
+      if (looksDifferent) {
+        const moved = shiftOf(before.boxes, after.boxes);
+        // Moves of less than a pixel only show in anti-aliasing, while what looks different
+        // without moving (e.g., colors) shows as such
+        const allowed = moved && moved.shift > 0 && !textDiffers && (moved.shift < 1 || moved.shift <= allowShift);
+        if (moved && moved.shift >= 1 && !allowed) {
+          shift = Math.ceil(moved.shift);
+          reasons.push(`Moves elements by up to ${shift} px at ${at} (e.g., ${moved.path})`);
+        } else if (!allowed) {
+          reasons.push(`Looks different at ${at}`);
+        }
       }
-      if (stableText && before.text !== after.text) {
+      if (textDiffers) {
         reasons.push(`Text differs at ${at}: ${firstDifference(before.text, after.text)}`);
       }
       let errorsNew = errorsBeyond(before.errors, after.errors);
@@ -412,19 +519,25 @@ export async function createRenderer({ viewports = VIEWPORTS_DEFAULT, timeout = 
         errorsNew = errorsNew.filter((error) => errorsAgain.includes(error));
       }
       for (const error of errorsNew) reasons.push(`New script error at ${at}: ${error.split('\n')[0]?.slice(0, 120)}`);
-      return { reasons, notes, blind, blocked: [...before.blocked, ...after.blocked] };
+      // Only where moving is all that differs
+      const shiftOnly = shift !== null && reasons.length === 1 ? shift : null;
+      return { reasons, notes, blind, shift: shiftOnly, blocked: [...before.blocked, ...after.blocked], failed: [...before.failed, ...after.failed] };
     }));
     const reasons = [...new Set(results.flatMap((result) => result.reasons))];
     const notes = [...new Set(results.flatMap((result) => result.notes))];
     const inconclusive = results.some((result) => result.blind) && reasons.length === 0;
     const blocked = [...new Set(results.flatMap((result) => result.blocked))].sort();
-    return { equal: reasons.length === 0 && !inconclusive, inconclusive, reasons, notes, blocked };
+    const failed = [...new Set(results.flatMap((result) => result.failed))].sort();
+    const differing = results.filter((result) => result.reasons.length);
+    const shift = differing.length && differing.every((result) => result.shift !== null) ? Math.max(...differing.map((result) => /** @type {number} */ (result.shift))) : null;
+    return { equal: reasons.length === 0 && !inconclusive, inconclusive, reasons, notes, blocked, failed, shift };
   }
 
   return {
     reason: '',
     renderer: {
       viewports,
+      allowShift,
       browser: nameBrowser,
       compare(page, html) {
         // The same output, as different options may produce, renders the same

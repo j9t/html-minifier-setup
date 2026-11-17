@@ -49,14 +49,15 @@ export const hasRecommendation = (result) => result.evaluations.some((evaluation
 const inEffect = (result) => result.evaluations.filter((evaluation) => evaluation.status === 'in-effect').sort((a, b) => a.name.localeCompare(b.name));
 
 /**
- * The result with the options in effect already, as configuration matching the pages, if any are
+ * The result with the options in effect already, as configuration matching the pages, if any
+ * are and none that save something were rejected, as it would then read as an alternative
  * @param {import('./select.js').Result} result
  * @param {Record<string, unknown>} [preserved]
  * @returns {Record<string, unknown> | null}
  */
 export function toMatchingConfig(result, preserved = {}) {
   const found = inEffect(result);
-  return found.length ? toConfig({ ...result, options: Object.assign({}, result.options, ...found.map((evaluation) => evaluation.options)) }, preserved) : null;
+  return found.length && !result.evaluations.some((evaluation) => evaluation.status === 'rejected') ? toConfig({ ...result, options: Object.assign({}, result.options, ...found.map((evaluation) => evaluation.options)) }, preserved) : null;
 }
 
 /**
@@ -67,6 +68,18 @@ export function toMatchingConfig(result, preserved = {}) {
 function looksMinified(result) {
   const whitespace = result.evaluations.find((evaluation) => evaluation.name === 'collapseWhitespace');
   return Boolean(whitespace && whitespace.status !== 'skipped' && whitespace.savings < result.baseline[result.metric] * SHARE_MINIFIED);
+}
+
+/**
+ * How far a rejected option moves elements at most, where that is all it was rejected for
+ * @param {import('./select.js').Evaluation} evaluation
+ * @returns {number | null}
+ */
+function shiftOnly(evaluation) {
+  if (evaluation.status !== 'rejected') return null;
+  const blocking = evaluation.reasons.filter((reason) => reason.level !== 'info' && reason.level !== 'check' && reason.level !== 'note');
+  if (!blocking.length || !blocking.every((reason) => reason.level === 'render' && typeof reason.shift === 'number')) return null;
+  return Math.max(...blocking.map((reason) => /** @type {number} */ (reason.shift)));
 }
 
 /** @param {string[]} items */
@@ -88,11 +101,16 @@ export function formatConfiguration(result, { preserved = {}, color = false } = 
     const [them, verb] = found.length === 1 ? ['it', 'has'] : ['them', 'have'];
     return `${recommended}\n\nThese pages ${verb} ${listAnd(found.map(({ name }) => `\`${name}\``))} in effect already. To keep ${them} so (e.g., when switching from another minifier), add ${them}—as ${found.length === 1 ? 'it changes' : 'they change'} nothing here, the checks can’t vouch for ${them}, so check ${them} on pages before minification.`;
   }
+  const rejected = result.evaluations.filter((evaluation) => evaluation.status === 'rejected');
+  const shifts = rejected.map(shiftOnly);
+  const shift = rejected.length && shifts.every((value) => value !== null) ? Math.max(.../** @type {number[]} */ (shifts)) : null;
   const reason = looksMinified(result)
     ? 'These pages look minified already.'
-    : result.evaluations.some((evaluation) => evaluation.status === 'rejected')
-      ? 'The options that save something don’t fit these pages.'
-      : `No option saves anything on these pages ${byMetric(result.metric)}.`;
+    : shift !== null
+      ? `The options that save something only move elements on these pages, by up to ${shift} px—\`--allow-shift ${shift}\` accepts that.`
+      : rejected.length
+        ? 'The options that save something don’t fit these pages.'
+        : `No option saves anything on these pages ${byMetric(result.metric)}.`;
   const lines = [`No configuration to recommend: ${reason}`];
   const matching = toMatchingConfig(result, preserved);
   if (matching) lines.push('', `${paint('bold', 'Configuration matching these pages, by the options in effect already', color)} (as they change nothing here, the checks can’t vouch for them—check it on pages before minification):`, json(matching));
@@ -180,7 +198,9 @@ function condenseReasons(reasons) {
       if (pages.join('\u0000') === pagesRenderedBefore) {
         lines.push(`${LABEL_RENDER} on the same ${count}`);
       } else {
-        const example = /** @type {import('./select.js').Reason} */ (run.find((reason) => reason.message.includes('“')) ?? run[0]);
+        // The largest move, matching what `--allow-shift` would need, or else changed text
+        const [moveLargest] = run.filter((reason) => typeof reason.shift === 'number').sort((a, b) => /** @type {number} */ (b.shift) - /** @type {number} */ (a.shift));
+        const example = /** @type {import('./select.js').Reason} */ (moveLargest ?? run.find((reason) => reason.message.includes('“')) ?? run[0]);
         lines.push(`${LABEL_RENDER} on ${count} (${listShort(pages)}), e.g., ${example.page ? `${example.page}: ` : ''}${example.message}`);
       }
       pagesRenderedBefore = pages.join('\u0000');
@@ -215,7 +235,7 @@ function table(rows) {
  * @returns {string}
  */
 export function formatReport(result, { renderReason = '', color = false, verbose = false } = {}) {
-  const { blocked = [] } = result;
+  const { blocked = [], failed = [], allowShift = 0 } = result;
   const { metric } = result;
   const dirShared = sharedDir(result.pages);
   const evaluations = result.evaluations.map((evaluation) => ({
@@ -227,18 +247,21 @@ export function formatReport(result, { renderReason = '', color = false, verbose
     (b.contribution ?? b.savings) - (a.contribution ?? a.savings) ||
     a.name.localeCompare(b.name));
 
-  const renderedAs = `Render-checked in ${result.browser ?? 'Chromium'}${result.viewports.length ? ` at ${result.viewports.join(' and ')}` : ''}`;
+  const renderedAs = `Render-checked in ${result.browser ?? 'Chromium'}${result.viewports.length ? ` at ${result.viewports.join(' and ')}` : ''}${allowShift ? `, allowing elements to move by up to ${allowShift} px` : ''}`;
   const renderSummary = blocked.length
     ? paint('warning', `${renderedAs}: The recommended configuration may not look the same as the original pages, as files outside the site were missing`, color)
-    : result.renderedSame
-      ? `${renderedAs}: The recommended configuration looks the same as the original pages`
-      : paint('warning', `${renderedAs}: The recommended configuration may not look the same as the original pages (see notes)`, color);
+    : failed.length
+      ? paint('warning', `${renderedAs}: The recommended configuration may not look the same as the original pages, as files didn’t load`, color)
+      : result.renderedSame
+        ? `${renderedAs}: The recommended configuration looks the same as the original pages`
+        : paint('warning', `${renderedAs}: The recommended configuration may not look the same as the original pages (see notes)`, color);
   const lines = [
     `• Evaluated ${result.pagesFound ? `${result.pages.length} of ${result.pagesFound.toLocaleString('en-US')} pages` : `${result.pages.length} page${result.pages.length === 1 ? '' : 's'}`}${dirShared ? ` in ${dirShared}` : ''}${result.pagesFound ? ' (use `--sample` to evaluate more)' : ''}, judging gains by ${NAMES_METRIC[metric]} size`,
     result.rendered
       ? `• ${renderSummary}`
       : `• Not render-checked${renderReason ? `: ${renderReason}` : ''}—options that need a render check aren’t recommended`,
     ...result.rendered && blocked.length ? [`• ${paint('warning', `Rendered without ${blocked.length} file${blocked.length === 1 ? '' : 's'} that symbolic links lead to outside the site (${listShort(blocked)}), which may change how pages look—\`--follow-links\` follows them`, color)}`] : [],
+    ...result.rendered && failed.length ? [`• ${paint('warning', `Rendered without ${failed.length} file${failed.length === 1 ? '' : 's'} that didn’t load (${listShort(failed)}), which may change how pages look`, color)}`] : [],
     // Only in development
     ...result.equivalence ? [`• Equivalence-checked with ${result.equivalence}`] : [],
     '',
@@ -268,7 +291,7 @@ export function formatReport(result, { renderReason = '', color = false, verbose
       const rendering = preset.failing === null || !checked
         ? 'not render-checked'
         : preset.failing
-          ? paint('failure', `looks different on ${preset.failing} ${ofPages}${preset.inconclusive ? `, inconclusive on ${preset.inconclusive}` : ''}`, color)
+          ? paint('failure', `looks different on ${preset.failing} ${ofPages}${preset.shift ? ` (moves elements by up to ${preset.shift} px)` : ''}${preset.inconclusive ? `, inconclusive on ${preset.inconclusive}` : ''}`, color)
           : preset.inconclusive
             ? `inconclusive on ${preset.inconclusive} ${ofPages}`
             : paint('success', preset.errors ? `looks the same on the other ${checked} page${checked === 1 ? '' : 's'}` : 'looks the same', color);
@@ -289,18 +312,32 @@ export function formatReport(result, { renderReason = '', color = false, verbose
   if (explained.length) {
     lines.push('', 'Details:');
     let condensed = false;
+    // Options with the same details are listed once, together, as where one cause affects several
+    /** @type {Map<string, {names: string[], status: string, body: string[]}>} */
+    const groups = new Map();
     for (const evaluation of explained) {
-      lines.push(`  ${evaluation.name} (${formatStatus(evaluation.status)})`);
+      /** @type {string[]} */
+      const body = [];
       const reasonLines = verbose
         ? evaluation.reasons.map((reason) => `${labelOf(reason.level)}${reason.page ? ` (${reason.page})` : ''}: ${reason.message}`)
         : condenseReasons(evaluation.reasons);
       condensed ||= reasonLines.length < evaluation.reasons.length;
       if (evaluation.reasons.some((reason) => reason.level === 'render')) {
         const design = VISIBLE_BY_DESIGN[evaluation.name];
-        lines.push(`    Why: ${design ? `${design}—that’s how the option works, not an error` : 'Not meant to change how pages look—possibly an HTML Minifier bug worth reporting'}`);
+        body.push(`    Why: ${design ? `${design}—that’s how the option works, not an error` : 'Not meant to change how pages look—possibly an HTML Minifier bug worth reporting'}`);
+        const shift = shiftOnly(evaluation);
+        if (shift !== null) body.push(`    Only moves elements, by up to ${shift} px—\`--allow-shift ${shift}\` accepts that`);
       }
-      lines.push(...reasonLines.map((line) => `    ${line}`));
+      body.push(...reasonLines.map((line) => `    ${line}`));
+      const key = `${evaluation.status}\u0000${body.join('\n')}`;
+      const group = groups.get(key);
+      if (group) {
+        group.names.push(evaluation.name);
+      } else {
+        groups.set(key, { names: [evaluation.name], status: evaluation.status, body });
+      }
     }
+    for (const { names, status, body } of groups.values()) lines.push(`  ${names.join(', ')} (${formatStatus(status)})`, ...body);
     if (condensed) lines.push('  (Run with `-v` for every page and viewport)');
   }
   if (result.notes.length) {
