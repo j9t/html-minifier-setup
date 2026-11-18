@@ -20,7 +20,8 @@ let progress = createProgress();
 
 const { version } = JSON.parse(fs.readFileSync(new URL('package.json', import.meta.url), 'utf8'));
 
-const INTRO = 'This is HTML Minifier Setup, identifying a recommended configuration for HTML Minifier.';
+// @@ Remove “beta” marker with 1.0.0 (same with README heading)
+const INTRO = 'This is HTML Minifier Setup (beta), identifying a recommended configuration for HTML Minifier.';
 
 /** @param {unknown} value */
 const list = (value) => (Array.isArray(value) ? value.map(String) : String(value).split(',')).map((item) => item.trim()).filter(Boolean);
