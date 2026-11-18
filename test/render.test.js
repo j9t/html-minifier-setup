@@ -11,6 +11,8 @@ import { combineOriginals, createGuard, createLimit, createRenderer, playwrightC
 
 const dirSite = path.join(path.dirname(fileURLToPath(import.meta.url)), 'fixtures', 'site');
 const { renderer, reason } = await createRenderer({ viewports: [{ width: 800, height: 600 }] });
+// At the top level, as hooks of suites whose tests are filtered out don’t run
+after(() => renderer?.close());
 
 /** The IDs of this process’s child processes (none where `pgrep` finds none) */
 const childPids = () => {
@@ -70,7 +72,6 @@ describe('`createRenderer`', { skip: renderer ? false : `No browser: ${reason}` 
   /** @type {import('../src/render.js').Renderer} */
   let r;
   before(() => { r = /** @type {import('../src/render.js').Renderer} */ (renderer); });
-  after(() => r.close());
 
   test('Finds markup that renders the same equal', async () => {
     const page = createPage({ id: 'a.html', html: '<!doctype html><p>a   b</p>' });
@@ -155,6 +156,23 @@ describe('`createRenderer`', { skip: renderer ? false : `No browser: ${reason}` 
       for (const pid of pids) assert.throws(() => process.kill(pid, 0), { code: 'ESRCH' });
     } finally {
       if (!closed) await rendererPaused.close();
+      killAll(pids);
+    }
+  });
+
+  test('Ends browsers that don’t close on their own without waiting as long as for pages', { skip: process.platform === 'win32' ? 'No SIGSTOP on Windows' : false }, async () => {
+    const pidsBefore = childPids();
+    const found = await createRenderer({ viewports: [{ width: 800, height: 600 }], timeout: 30000 });
+    const pids = childPids().filter((pid) => !pidsBefore.includes(pid));
+    try {
+      assert.ok(pids.length, 'Browser process found');
+      // As Chrome and Edge sometimes don’t end when asked to close
+      for (const pid of pids) process.kill(pid, 'SIGSTOP');
+      const start = Date.now();
+      await found.renderer?.close();
+      assert.ok(Date.now() - start < 10000, `Closed after ${Date.now() - start} ms`);
+      for (const pid of pids) assert.throws(() => process.kill(pid, 0), { code: 'ESRCH' });
+    } finally {
       killAll(pids);
     }
   });
@@ -400,6 +418,11 @@ describe('`createGuard`', () => {
     const answered = createGuard(50);
     await assert.rejects(answered(async () => { throw new Error('Failed'); }), /Failed/);
     assert.strictEqual(await answered(async () => 'next'), 'next');
+  });
+
+  test('Rejects work that takes longer than a limit given for it', async () => {
+    const answered = createGuard(60000);
+    await assert.rejects(answered(() => new Promise(() => {}), 50), /Browser stopped responding \(no answer within 50 ms\)/);
   });
 });
 

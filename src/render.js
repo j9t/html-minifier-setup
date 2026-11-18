@@ -107,12 +107,13 @@ export function createGuard(timeout) {
   /**
    * @template T
    * @param {() => Promise<T>} work
+   * @param {number} [limit]
    * @returns {Promise<T>}
    */
-  return async (work) => {
+  return async (work, limit = timeout) => {
     if (errBrowser) throw errBrowser;
     try {
-      return await responsive(work(), timeout, 'Browser');
+      return await responsive(work(), limit, 'Browser');
     } catch (err) {
       if (err instanceof Unresponsive) errBrowser = err;
       throw err;
@@ -268,6 +269,10 @@ export const combineOriginals = (first, second) => ({
 // compared in the same browser
 /** @type {Browser[]} */
 const BROWSERS = [{ name: 'Chromium' }, { name: 'Chrome', channel: 'chrome' }, { name: 'Edge', channel: 'msedge' }];
+
+// How long closing may take before the browser is ended, as Chrome and Edge sometimes don’t end
+// when asked to (closing otherwise takes well under a second)
+const CLOSE_LIMIT = 5000;
 
 /** The path of Playwright’s command line interface, if installed */
 export function playwrightCli() {
@@ -586,7 +591,7 @@ export async function createRenderer({ viewports = VIEWPORTS_DEFAULT, timeout = 
             // Contexts first, as a browser waits for pages that stopped responding (Chrome: 30 s)
             await Promise.all(browserOpen.contexts().map((context) => context.close()));
             await serverOpen.close();
-          });
+          }, Math.min(timeout, CLOSE_LIMIT));
         } catch {
           await serverOpen.kill();
         } finally {
