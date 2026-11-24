@@ -20,11 +20,11 @@ Inputs are HTML files, directories, or URLs (default: the current directory). Fr
 
 The render check uses Playwright’s Chromium, or else Chrome or Edge, if installed. Where none is found, HTML Minifier Setup offers to download Chromium.
 
-Local pages are served to the browser from their directory. Symbolic links that lead outside it are followed only if you agree (or pass `--follow-links`), as a page’s scripts could send on what they lead to. Where nobody can answer, they aren’t followed.
+Local pages are served to the browser from their directory. Symbolic links that lead outside it are followed only if you agree (or pass `--follow-links`), as a page’s scripts could send on what they lead to.
 
 Where no option fits, HTML Minifier Setup says why. On pages that are already minified, where no option that saves something was rejected, it then shows the configuration matching them, by the options in effect already (see below)—useful when switching from another minifier.
 
-On a terminal, HTML Minifier Setup offers to save the recommended configuration (or else the one matching the pages; as html-minifier.config.json, in the project of the pages evaluated or a directory of your choice) and, where it isn’t installed yet, to install HTML Minifier there (with the package manager the project uses), or to update it where a newer version is out. All offers default to no. Where one of HTML Minifier’s presets with a few changes has the same effect, it also offers to save the configuration that way—shorter, and following changes to the preset.
+On a terminal, HTML Minifier Setup offers to save the recommended configuration (or else the one matching the pages; as html-minifier.config.json, in the project of the pages evaluated or a directory of your choice) and, where it isn’t installed yet, to install HTML Minifier there (with the package manager the project uses) or to update it where a newer version is out. Where one of HTML Minifier’s presets with a few changes has the same effect, it also offers to save the configuration that way—shorter, and following changes to the preset.
 
 ```shell
 # Evaluate a build directory and write the configuration to html-minifier.config.json
@@ -83,7 +83,7 @@ Options flagged by the static check as a _risk_ don’t fit and aren’t recomme
 
 Options that make pages look different are mostly doing what they’re designed to do—collapsing whitespace changes spacing where a layout relies on it—so they don’t fit these pages, without HTML Minifier being at fault. Where an option that isn’t meant to change how pages look does, the report suggests it may be an HTML Minifier bug worth reporting. Where an option only moves elements, the report says by how much, and `--allow-shift` accepts moves that small. The configuration recommended looks the same as the original pages at every viewport checked (but for moves `--allow-shift` accepts).
 
-### Limits
+### Limitations
 
 The checks can show that options change pages, not that they never will:
 
