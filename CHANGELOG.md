@@ -4,6 +4,18 @@ All notable changes to HTML Minifier Setup (HMS) are documented in this file, wh
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.0] - 2026-11-24
+
+### Fixed
+
+* Ended browsers that don’t close when asked to (as Chrome and Edge sometimes do) after 5 seconds, rather than waiting as long as for pages
+
+### Changed
+
+* Compared HTML Minifier’s presets with the recommended configuration by a row of its own (and under a heading saying so), rather than with a size the comparison didn’t show
+* Showed fallbacks with the option they’re for (e.g., `collapseWhitespace (conservativeCollapse)`), dropping the _Variant_ column, and renamed _Contributes_ to _Saves in setup_, leaving it out where no option is in the configuration
+* Colored the report further, where the terminal supports it
+
 ## [0.6.0] - 2026-11-17
 
 ### Fixed

@@ -1,6 +1,6 @@
 import { presets as PRESETS } from 'html-minifier';
 import { VISIBLE_BY_DESIGN } from './catalog.js';
-import { paint } from './color.js';
+import { paint, strip } from './color.js';
 import { byMetric, METRICS, NAMES_METRIC } from './measure.js';
 import { MESSAGE_RENDERS_SAME } from './select.js';
 
@@ -26,6 +26,18 @@ const LABELS_STATUS = { 'accepted': 'recommended', 'kept': 'kept', 'rejected': '
 /** @param {string} status */
 const formatStatus = (status) => LABELS_STATUS[status] ?? status;
 
+// Statuses of options in the configuration, and of those left out for lack of gain
+const STATUSES_IN = ['accepted', 'kept'];
+const STATUSES_IDLE = ['in-effect', 'no-gain', 'no-effect', 'skipped'];
+
+/**
+ * @param {string} status
+ * @param {boolean} color
+ */
+const paintStatus = (status, color) => STATUSES_IN.includes(status)
+  ? paint('success', formatStatus(status), color)
+  : STATUSES_IDLE.includes(status) ? paint('dim', formatStatus(status), color) : formatStatus(status);
+
 /**
  * The result as an HTML Minifier configuration, sorted by option name
  * @param {import('./select.js').Result} result
@@ -43,7 +55,7 @@ export function toConfig(result, preserved = {}) {
  * Whether any option is recommended or kept, not counting carried options
  * @param {import('./select.js').Result} result
  */
-export const hasRecommendation = (result) => result.evaluations.some((evaluation) => evaluation.status === 'accepted' || evaluation.status === 'kept');
+export const hasRecommendation = (result) => result.evaluations.some((evaluation) => STATUSES_IN.includes(evaluation.status));
 
 /** @param {import('./select.js').Result} result */
 const inEffect = (result) => result.evaluations.filter((evaluation) => evaluation.status === 'in-effect').sort((a, b) => a.name.localeCompare(b.name));
@@ -222,11 +234,12 @@ function condenseReasons(reasons) {
 }
 
 /**
+ * Rows in columns, by the width cells show at, without escape codes
  * @param {string[][]} rows
  */
 function table(rows) {
-  const widths = rows[0]?.map((_, column) => Math.max(...rows.map((row) => (row[column] ?? '').length))) ?? [];
-  return rows.map((row) => row.map((cell, column) => column === row.length - 1 ? cell : cell.padEnd(widths[column] ?? 0)).join('  ').trimEnd()).join('\n');
+  const widths = rows[0]?.map((_, column) => Math.max(...rows.map((row) => strip(row[column] ?? '').length))) ?? [];
+  return rows.map((row) => row.map((cell, column) => column === row.length - 1 ? cell : `${cell}${' '.repeat(Math.max(0, (widths[column] ?? 0) - strip(cell).length))}`).join('  ').trimEnd()).join('\n');
 }
 
 /**
@@ -253,8 +266,9 @@ export function formatReport(result, { renderReason = '', color = false, verbose
     : failed.length
       ? paint('warning', `${renderedAs}: The recommended configuration may not look the same as the original pages, as files didn’t load`, color)
       : result.renderedSame
-        ? `${renderedAs}: The recommended configuration looks the same as the original pages`
+        ? paint('success', `${renderedAs}: The recommended configuration looks the same as the original pages`, color)
         : paint('warning', `${renderedAs}: The recommended configuration may not look the same as the original pages (see notes)`, color);
+  const contributing = evaluations.some((evaluation) => evaluation.contribution !== undefined);
   const lines = [
     `• Evaluated ${result.pagesFound ? `${result.pages.length} of ${result.pagesFound.toLocaleString('en-US')} pages` : `${result.pages.length} page${result.pages.length === 1 ? '' : 's'}`}${dirShared ? ` in ${dirShared}` : ''}${result.pagesFound ? ' (use `--sample` to evaluate more)' : ''}, judging gains by ${NAMES_METRIC[metric]} size`,
     result.rendered
@@ -266,22 +280,25 @@ export function formatReport(result, { renderReason = '', color = false, verbose
     ...result.equivalence ? [`• Equivalence-checked with ${result.equivalence}`] : [],
     '',
     table([
-      ['Option', 'Status', 'Saves alone', 'Contributes', 'Variant'],
+      ['Option', 'Status', 'Saves alone', ...contributing ? ['Saves in setup'] : []].map((heading) => paint('bold', heading, color)),
       ...evaluations.map((evaluation) => [
-        evaluation.name,
-        formatStatus(evaluation.status),
+        `${evaluation.name}${evaluation.variant ? ` (${evaluation.variant})` : ''}`,
+        paintStatus(evaluation.status, color),
         evaluation.status === 'skipped' ? '' : formatBytes(evaluation.savings),
-        evaluation.contribution === undefined ? '' : formatBytes(evaluation.contribution),
-        evaluation.variant ?? ''
+        ...contributing ? [evaluation.contribution === undefined ? '' : formatBytes(evaluation.contribution)] : []
       ])
     ]),
     '',
-    ...METRICS.map((m) => `${m === 'raw' ? 'Uncompressed' : NAMES_METRIC[m]}: ${formatChange(result.baseline[m], result.final[m], color)}`)
+    ...METRICS.map((m) => {
+      const label = `${m === 'raw' ? 'Uncompressed' : NAMES_METRIC[m]}:`;
+      return `${m === metric ? paint('bold', label, color) : label} ${formatChange(result.baseline[m], result.final[m], color)}`;
+    })
   ];
 
   if (result.presets.length) {
     const finalMetric = result.final[metric];
-    lines.push('', `Compared with HTML Minifier’s presets (${NAMES_METRIC[metric]}):`, table(result.presets.map((preset) => {
+    const [subject, label] = hasRecommendation(result) ? ['Recommended configuration', 'recommended'] : ['Pages without options', 'without options'];
+    lines.push('', paint('bold', `${subject} compared with HTML Minifier’s presets (${NAMES_METRIC[metric]}):`, color), table([[`  ${label}`, formatBytes(finalMetric)], ...result.presets.map((preset) => {
       const share = finalMetric ? (preset.size / finalMetric - 1) * 100 : 0;
       const size = preset.errors ? `fails on ${preset.errors} of ${result.pages.length}` : formatBytes(preset.size);
       const relative = preset.errors ? '' : Math.abs(share) < 0.05 ? 'same size' : `${Math.abs(share).toFixed(1)}% ${share > 0 ? 'larger' : 'smaller'}`;
@@ -297,7 +314,7 @@ export function formatReport(result, { renderReason = '', color = false, verbose
             : paint('success', preset.errors ? `looks the same on the other ${checked} page${checked === 1 ? '' : 's'}` : 'looks the same', color);
       const rejected = preset.rejected.length ? `; includes ${paint('failure', preset.rejected.map((name) => `\`${name}\``).join(', '), color)}, which ${preset.rejected.length === 1 ? 'doesn’t' : 'don’t'} fit` : '';
       return [`  ${preset.name}`, size, relative, `${rendering}${rejected}`];
-    })));
+    })]));
   }
 
   // Options that change nothing can’t be judged on minified pages, as minification
@@ -310,7 +327,7 @@ export function formatReport(result, { renderReason = '', color = false, verbose
 
   const explained = evaluations.filter((evaluation) => evaluation.status !== 'in-effect' && evaluation.reasons.some((reason) => reason.level !== 'info' || (evaluation.status !== 'no-gain' && evaluation.status !== 'no-effect')));
   if (explained.length) {
-    lines.push('', 'Details:');
+    lines.push('', paint('bold', 'Details:', color));
     let condensed = false;
     // Options with the same details are listed once, together, as where one cause affects several
     /** @type {Map<string, {names: string[], status: string, body: string[]}>} */
@@ -338,11 +355,11 @@ export function formatReport(result, { renderReason = '', color = false, verbose
       }
     }
     for (const { names, status, body } of groups.values()) lines.push(`  ${names.join(', ')} (${formatStatus(status)})`, ...body);
-    if (condensed) lines.push('  (Run with `-v` for every page and viewport)');
+    if (condensed) lines.push(`  ${paint('dim', '(Run with `-v` for every page and viewport)', color)}`);
   }
   if (result.notes.length) {
-    lines.push('', 'Notes:', ...result.notes.map((note) => `• ${note}`));
+    lines.push('', paint('bold', 'Notes:', color), ...result.notes.map((note) => `• ${note}`));
   }
-  lines.push('', `Checks can show that options change these pages, not that they never will${hasRecommendation(result) ? '—test the configuration on your site' : ''}.`);
+  lines.push('', paint('dim', `Checks can show that options change these pages, not that they never will${hasRecommendation(result) ? '—test the configuration on your site' : ''}.`, color));
   return lines.join('\n');
 }

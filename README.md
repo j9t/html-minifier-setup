@@ -68,6 +68,8 @@ Options that need another (e.g., `removeUnusedCSS` needs `minifyCSS`) are evalua
 
 Where full whitespace collapsing breaks a page, HTML Minifier Setup falls back to `conservativeCollapse`, and then to `preserveLineBreaks`.
 
+In the report, _Saves alone_ is what an option saves on its own (step 1), and _Saves in setup_ what the recommended configuration would lose without it (step 3)—the two differ where options overlap or build on each other. A fallback in use follows the option’s name (e.g., `collapseWhitespace (conservativeCollapse)`), and the presets are compared with the recommended configuration, listed first.
+
 ### Checks
 
 | Check | Catches | Needs |
