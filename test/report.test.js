@@ -162,6 +162,16 @@ describe('`formatReport`', () => {
     assert.match(formatReport(result), /\nRecommended configuration compared with HTML Minifier’s presets \(Gzip\):\n {2}recommended +400 B\n {2}conservative +440 B +10\.0% larger +not render-checked\n/);
   });
 
+  test('Aligns preset columns below the shorter row of the recommended configuration', () => {
+    const result = resultOf({ raw: 900, gzip: 400, brotli: 300 }, [{ status: 'accepted', savings: 10 }]);
+    result.presets = [
+      { name: 'conservative', size: 440, failing: null, inconclusive: null, errors: 0, rejected: [] },
+      { name: 'comprehensive', size: 300, failing: null, inconclusive: null, errors: 0, rejected: [] }
+    ];
+    const rows = formatReport(result).split('\n').filter((line) => line.includes('not render-checked'));
+    assert.strictEqual(new Set(rows.map((row) => row.indexOf('not render-checked'))).size, 1);
+  });
+
   test('Compares presets with pages without options, where there’s no recommendation', () => {
     const result = resultOf({ raw: 900, gzip: 400, brotli: 300 }, [{ status: 'no-gain' }]);
     result.presets = [{ name: 'conservative', size: 400, failing: null, inconclusive: null, errors: 0, rejected: [] }];

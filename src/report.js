@@ -269,7 +269,7 @@ function condenseReasons(reasons) {
  * @param {string[][]} rows
  */
 function table(rows) {
-  const widths = rows[0]?.map((_, column) => Math.max(...rows.map((row) => strip(row[column] ?? '').length))) ?? [];
+  const widths = Array.from({ length: Math.max(0, ...rows.map((row) => row.length)) }, (_, column) => Math.max(...rows.map((row) => strip(row[column] ?? '').length)));
   return rows.map((row) => row.map((cell, column) => column === row.length - 1 ? cell : `${cell}${' '.repeat(Math.max(0, (widths[column] ?? 0) - strip(cell).length))}`).join('  ').trimEnd()).join('\n');
 }
 
