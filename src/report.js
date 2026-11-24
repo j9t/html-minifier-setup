@@ -26,6 +26,33 @@ const LABELS_STATUS = { 'accepted': 'recommended', 'kept': 'kept', 'rejected': '
 /** @param {string} status */
 const formatStatus = (status) => LABELS_STATUS[status] ?? status;
 
+/** @param {number} bytes */
+const formatBytes = (bytes) => `${bytes.toLocaleString('en-US')} B`;
+
+/**
+ * How much less an option saves alongside the other options, where it’s less than half of what
+ * it saves on its own, as the table shows that alone
+ * @param {import('./select.js').Evaluation} evaluation
+ * @returns {import('./select.js').Reason[]}
+ */
+const overlapOf = ({ contribution, savings }) => contribution !== undefined && contribution * 2 < savings
+  ? [{ level: 'info', message: `Saves ${contribution > 0 ? formatBytes(contribution) : 'nothing'} alongside the other options (${formatBytes(savings)} on its own)` }]
+  : [];
+
+/**
+ * The document mode a rejected option switches pages to, and how many it switches, where pages it
+ * switches look different
+ * @param {import('./select.js').Evaluation | undefined} evaluation
+ * @returns {{mode: string, count: number} | null}
+ */
+function modeSwitched(evaluation) {
+  if (evaluation?.status !== 'rejected') return null;
+  const pagesDiffering = new Set(evaluation.reasons.filter((reason) => reason.level === 'render').map((reason) => reason.page));
+  const switching = evaluation.reasons.filter((reason) => reason.mode);
+  const found = switching.find((reason) => pagesDiffering.has(reason.page));
+  return found?.mode ? { mode: found.mode, count: new Set(switching.map((reason) => reason.page)).size } : null;
+}
+
 // Statuses of options in the configuration, and of those left out for lack of gain
 const STATUSES_IN = ['accepted', 'kept'];
 const STATUSES_IDLE = ['in-effect', 'no-gain', 'no-effect', 'skipped'];
@@ -154,9 +181,6 @@ export function toPresetConfig(result, preserved = {}) {
   return { name: nearest.name, changes: Object.keys(nearest.overrides).sort(), config: { $schema, preset: nearest.name, ...rest } };
 }
 
-/** @param {number} bytes */
-const formatBytes = (bytes) => `${bytes.toLocaleString('en-US')} B`;
-
 /**
  * @param {number} before
  * @param {number} after
@@ -180,6 +204,13 @@ function sharedDir(pages) {
   while (length < first.length && rest.every((segments) => segments[length] === first[length])) length++;
   return length ? `${first.slice(0, length).join('/')}/` : '';
 }
+
+/**
+ * Pages out of all, as “the page” and “both pages” where that’s all
+ * @param {number} count
+ * @param {number} total
+ */
+const pagesOf = (count, total) => total === 1 ? 'the page' : count === total ? total === 2 ? 'both pages' : `all ${total} pages` : `${count} of ${total} pages`;
 
 /** @param {string[]} items */
 const listShort = (items) => items.length > MAX_LISTED
@@ -253,11 +284,11 @@ export function formatReport(result, { renderReason = '', color = false, verbose
   const dirShared = sharedDir(result.pages);
   const evaluations = result.evaluations.map((evaluation) => ({
     ...evaluation,
-    reasons: evaluation.reasons.map((reason) => reason.page?.startsWith(dirShared) ? { ...reason, page: reason.page.slice(dirShared.length) } : reason)
-      .map((reason) => blocked.length && reason.message === MESSAGE_RENDERS_SAME ? { ...reason, message: `${reason.message}, but without files outside the site` } : reason)
+    reasons: [...evaluation.reasons.map((reason) => reason.page?.startsWith(dirShared) ? { ...reason, page: reason.page.slice(dirShared.length) } : reason)
+      .map((reason) => blocked.length && reason.message === MESSAGE_RENDERS_SAME ? { ...reason, message: `${reason.message}, but without files outside the site` } : reason), ...overlapOf(evaluation)]
   })).sort((a, b) =>
     ORDER_STATUS.indexOf(a.status) - ORDER_STATUS.indexOf(b.status) ||
-    (b.contribution ?? b.savings) - (a.contribution ?? a.savings) ||
+    b.savings - a.savings ||
     a.name.localeCompare(b.name));
 
   const renderedAs = `Render-checked in ${result.browser ?? 'Chromium'}${result.viewports.length ? ` at ${result.viewports.join(' and ')}` : ''}${allowShift ? `, allowing elements to move by up to ${allowShift} px` : ''}`;
@@ -268,7 +299,6 @@ export function formatReport(result, { renderReason = '', color = false, verbose
       : result.renderedSame
         ? paint('success', `${renderedAs}: The recommended configuration looks the same as the original pages`, color)
         : paint('warning', `${renderedAs}: The recommended configuration may not look the same as the original pages (see notes)`, color);
-  const contributing = evaluations.some((evaluation) => evaluation.contribution !== undefined);
   const lines = [
     `• Evaluated ${result.pagesFound ? `${result.pages.length} of ${result.pagesFound.toLocaleString('en-US')} pages` : `${result.pages.length} page${result.pages.length === 1 ? '' : 's'}`}${dirShared ? ` in ${dirShared}` : ''}${result.pagesFound ? ' (use `--sample` to evaluate more)' : ''}, judging gains by ${NAMES_METRIC[metric]} size`,
     result.rendered
@@ -280,12 +310,11 @@ export function formatReport(result, { renderReason = '', color = false, verbose
     ...result.equivalence ? [`• Equivalence-checked with ${result.equivalence}`] : [],
     '',
     table([
-      ['Option', 'Status', 'Saves alone', ...contributing ? ['Saves in setup'] : []].map((heading) => paint('bold', heading, color)),
+      ['Option', 'Status', 'Saves'].map((heading) => paint('bold', heading, color)),
       ...evaluations.map((evaluation) => [
         `${evaluation.name}${evaluation.variant ? ` (${evaluation.variant})` : ''}`,
         paintStatus(evaluation.status, color),
-        evaluation.status === 'skipped' ? '' : formatBytes(evaluation.savings),
-        ...contributing ? [evaluation.contribution === undefined ? '' : formatBytes(evaluation.contribution)] : []
+        evaluation.status === 'skipped' ? '' : formatBytes(evaluation.savings)
       ])
     ]),
     '',
@@ -304,15 +333,23 @@ export function formatReport(result, { renderReason = '', color = false, verbose
       const relative = preset.errors ? '' : Math.abs(share) < 0.05 ? 'same size' : `${Math.abs(share).toFixed(1)}% ${share > 0 ? 'larger' : 'smaller'}`;
       // Over the pages the preset could minify
       const checked = result.pages.length - preset.errors;
-      const ofPages = `of ${checked} page${checked === 1 ? '' : 's'}`;
       const rendering = preset.failing === null || !checked
         ? 'not render-checked'
         : preset.failing
-          ? paint('failure', `looks different on ${preset.failing} ${ofPages}${preset.shift ? ` (moves elements by up to ${preset.shift} px)` : ''}${preset.inconclusive ? `, inconclusive on ${preset.inconclusive}` : ''}`, color)
+          ? paint('failure', `looks different on ${pagesOf(preset.failing, checked)}${preset.shift ? ` (moves elements by up to ${preset.shift} px)` : ''}${preset.inconclusive ? `, inconclusive on ${preset.inconclusive}` : ''}`, color)
           : preset.inconclusive
-            ? `inconclusive on ${preset.inconclusive} ${ofPages}`
+            ? `inconclusive on ${pagesOf(preset.inconclusive, checked)}`
             : paint('success', preset.errors ? `looks the same on the other ${checked} page${checked === 1 ? '' : 's'}` : 'looks the same', color);
-      const rejected = preset.rejected.length ? `; includes ${paint('failure', preset.rejected.map((name) => `\`${name}\``).join(', '), color)}, which ${preset.rejected.length === 1 ? 'doesn’t' : 'don’t'} fit` : '';
+      /** @param {string[]} names */
+      const listNames = (names) => paint('failure', names.map((name) => `\`${name}\``).join(', '), color);
+      // Options switching modes are named for that, as their render differences come down to it
+      const switching = preset.rejected.map((name) => ({ name, switched: modeSwitched(evaluations.find((evaluation) => evaluation.name === name)) }));
+      const unfit = switching.filter(({ switched }) => !switched).map(({ name }) => name);
+      const parts = [
+        ...unfit.length ? [`${listNames(unfit)}, which ${unfit.length === 1 ? 'doesn’t' : 'don’t'} fit`] : [],
+        ...switching.flatMap(({ name, switched }) => switched ? [`${listNames([name])}, which switches ${pagesOf(switched.count, result.pages.length)} to ${switched.mode}`] : [])
+      ];
+      const rejected = parts.length ? `; includes ${parts.join(', and ')}` : '';
       return [`  ${preset.name}`, size, relative, `${rendering}${rejected}`];
     })]));
   }

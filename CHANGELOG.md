@@ -13,7 +13,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 ### Changed
 
 * Compared HTML Minifier’s presets with the recommended configuration by a row of its own (and under a heading saying so), rather than with a size the comparison didn’t show
-* Showed fallbacks with the option they’re for (e.g., `collapseWhitespace (conservativeCollapse)`), dropping the _Variant_ column, and renamed _Contributes_ to _Saves in setup_, leaving it out where no option is in the configuration
+* Simplified the table to what options save on their own (_Saves_, formerly _Saves alone_), dropping _Contributes_ and pointing out in details where options save less than half of that alongside the other options instead, as well as _Variant_, showing fallbacks with the option they’re for instead (e.g., `collapseWhitespace (conservativeCollapse)`)
+* Named the document mode `useShortDoctype` switches pages to where that’s why presets including it don’t fit (`mode` with `--json`)
 * Colored the report further, where the terminal supports it
 
 ## [0.6.0] - 2026-11-17

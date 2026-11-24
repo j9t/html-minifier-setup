@@ -85,7 +85,7 @@ describe('`formatReport`', () => {
     result.notes = ['A note'];
     result.presets = [{ name: 'conservative', size: 440, failing: null, inconclusive: null, errors: 0, rejected: [] }];
     const report = formatReport(result, { color: true });
-    for (const heading of ['Option', 'Status', 'Saves alone', 'Details:', 'Notes:', 'Gzip:']) assert.match(report, new RegExp(`${ESC}\\[1m${heading}${ESC}\\[0m`));
+    for (const heading of ['Option', 'Status', 'Saves', 'Details:', 'Notes:', 'Gzip:']) assert.match(report, new RegExp(`${ESC}\\[1m${heading}${ESC}\\[0m`));
     assert.match(report, new RegExp(`${ESC}\\[1mPages without options compared with HTML Minifier’s presets \\(Gzip\\):${ESC}\\[0m`));
     assert.doesNotMatch(report, new RegExp(`${ESC}\\[1m(Uncompressed|Brotli):`));
   });
@@ -176,7 +176,7 @@ describe('`formatReport`', () => {
     ];
     const report = formatReport(result);
     assert.match(report, /conservative +440 B +10\.0% larger +looks the same; includes `removeComments`, which doesn’t fit/);
-    assert.match(report, /comprehensive +380 B +5\.0% smaller +looks different on 1 of 1 page/);
+    assert.match(report, /comprehensive +380 B +5\.0% smaller +looks different on the page/);
   });
 
   test('Qualifies preset render checks by the pages the preset could minify', () => {
@@ -194,15 +194,49 @@ describe('`formatReport`', () => {
       { name: 'comprehensive', size: 380, failing: 1, inconclusive: 1, errors: 0, rejected: [] }
     ];
     const report = formatReport(result);
-    assert.match(report, /conservative .*inconclusive on 3 of 3 pages/);
+    assert.match(report, /conservative .*inconclusive on all 3 pages/);
     assert.doesNotMatch(report, /looks the same/);
     assert.match(report, /comprehensive .*looks different on 1 of 3 pages, inconclusive on 1/);
+  });
+
+  test('Says presets switch pages to standards mode, where that is why `useShortDoctype` doesn’t fit', () => {
+    const result = resultOf({ raw: 900, gzip: 400, brotli: 300 }, [
+      { name: 'useShortDoctype', status: 'rejected', reasons: [
+        { level: 'check', page: 'a.html', message: 'Switches the page from quirks mode to standards mode, which can change layout', mode: 'standards mode' },
+        { level: 'render', page: 'a.html', message: 'Looks different at 1280×800' }
+      ] },
+      { name: 'removeComments', status: 'rejected', reasons: [{ level: 'risk', page: 'a.html', message: 'Removes a comment' }] }
+    ]);
+    result.pages = ['a.html', 'b.html'];
+    result.presets = [
+      { name: 'comprehensive', size: 380, failing: 1, inconclusive: 0, errors: 0, rejected: ['removeComments', 'useShortDoctype'] },
+      { name: 'other', size: 380, failing: 1, inconclusive: 0, errors: 0, rejected: ['useShortDoctype'] }
+    ];
+    const report = formatReport(result);
+    assert.match(report, /comprehensive .*; includes `removeComments`, which doesn’t fit, and `useShortDoctype`, which switches 1 of 2 pages to standards mode\n/);
+    assert.match(report, /other .*; includes `useShortDoctype`, which switches 1 of 2 pages to standards mode\n/);
+    result.pages = ['a.html'];
+    assert.match(formatReport(result), /other .*; includes `useShortDoctype`, which switches the page to standards mode\n/);
+    result.pages = ['a.html', 'b.html'];
+    /** @type {import('../src/select.js').Evaluation} */ (result.evaluations[0]).reasons.push({ level: 'check', page: 'b.html', message: 'Switches the page from quirks mode to standards mode, which can change layout', mode: 'standards mode' });
+    assert.match(formatReport(result), /other .*; includes `useShortDoctype`, which switches both pages to standards mode\n/);
+  });
+
+  test('Says `useShortDoctype` doesn’t fit where pages switching modes look the same', () => {
+    const result = resultOf({ raw: 900, gzip: 400, brotli: 300 }, [
+      { name: 'useShortDoctype', status: 'rejected', reasons: [
+        { level: 'check', page: 'a.html', message: 'Switches the page from quirks mode to standards mode, which can change layout', mode: 'standards mode' },
+        { level: 'render', page: 'b.html', message: 'Looks different at 1280×800' }
+      ] }
+    ]);
+    result.presets = [{ name: 'comprehensive', size: 380, failing: 1, inconclusive: 0, errors: 0, rejected: ['useShortDoctype'] }];
+    assert.match(formatReport(result), /; includes `useShortDoctype`, which doesn’t fit\n/);
   });
 
   test('Says how far presets move elements, where that is all that differs', () => {
     const result = resultOf({ raw: 900, gzip: 400, brotli: 300 });
     result.presets = [{ name: 'comprehensive', size: 380, failing: 1, inconclusive: 0, errors: 0, rejected: [], shift: 10 }];
-    assert.match(formatReport(result), /comprehensive +380 B +5\.0% smaller +looks different on 1 of 1 page \(moves elements by up to 10 px\)/);
+    assert.match(formatReport(result), /comprehensive +380 B +5\.0% smaller +looks different on the page \(moves elements by up to 10 px\)/);
   });
 });
 
@@ -236,16 +270,29 @@ describe('`formatReport` table', () => {
       { name: 'collapseWhitespace', variant: 'conservativeCollapse', savings: 40, contribution: 38 },
       { name: 'removeComments', savings: 10, contribution: 10 }
     ]));
-    assert.match(report, /^collapseWhitespace \(conservativeCollapse\) +recommended +40 B +38 B$/m);
-    assert.match(report, /^removeComments +recommended +10 B +10 B$/m);
+    assert.match(report, /^collapseWhitespace \(conservativeCollapse\) +recommended +40 B$/m);
+    assert.match(report, /^removeComments +recommended +10 B$/m);
     assert.doesNotMatch(report, /Variant/);
   });
 
-  test('Shows what options save in the configuration only where any do', () => {
-    assert.match(formatReport(resultOf(SIZES, [{ savings: 10, contribution: 12 }])), /^Option +Status +Saves alone +Saves in setup$/m);
-    const report = formatReport(resultOf(SIZES, [{ status: 'no-gain', savings: 0 }]));
-    assert.match(report, /^Option +Status +Saves alone$/m);
-    assert.doesNotMatch(report, /Saves in setup/);
+  test('Shows what options save on their own, sorted by that within statuses', () => {
+    const report = formatReport(resultOf(SIZES, [
+      { name: 'a', savings: 20, contribution: 30 },
+      { name: 'b', savings: 25, contribution: 15 },
+      { name: 'c', status: 'no-gain', savings: 2 }
+    ]));
+    assert.match(report, /^Option +Status +Saves\nb +recommended +25 B\na +recommended +20 B\nc +no gain +2 B$/m);
+  });
+
+  test('Points out options that save less than half as much alongside the other options', () => {
+    const report = formatReport(resultOf(SIZES, [
+      { name: 'minifyCSS', savings: 100, contribution: 49 },
+      { name: 'removeComments', savings: 100, contribution: 50 },
+      { name: 'removeEmptyAttributes', status: 'kept', savings: 10, contribution: 0 }
+    ]));
+    assert.match(report, /\n {2}minifyCSS \(recommended\)\n {4}Info: Saves 49 B alongside the other options \(100 B on its own\)\n/);
+    assert.match(report, /\n {2}removeEmptyAttributes \(kept\)\n {4}Info: Saves nothing alongside the other options \(10 B on its own\)\n/);
+    assert.doesNotMatch(report, /removeComments \(/);
   });
 
   test('Colors recommended and kept options’ statuses green and dims those of options left out for lack of gain, where colored', () => {
