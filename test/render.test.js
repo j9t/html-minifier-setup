@@ -39,8 +39,9 @@ const killAll = (pids) => {
 
 describe('`createRenderer` browsers', () => {
   test('Falls back to other browsers where one doesn’t start, naming the one used', { skip: renderer ? false : `No browser: ${reason}` }, async () => {
-    const found = await createRenderer({ browsers: [{ name: 'Nothing', channel: 'nonexistent' }, { name: 'Edge', channel: 'msedge' }, { name: 'Chromium' }, { name: 'Chrome', channel: 'chrome' }] });
-    assert.match(found.renderer?.browser ?? '', /^(Edge|Chromium|Chrome) \d+/);
+    // In default order, as other browsers may be installed but take long to fail (e.g., Edge in CI)
+    const found = await createRenderer({ browsers: [{ name: 'Nothing', channel: 'nonexistent' }, { name: 'Chromium' }, { name: 'Chrome', channel: 'chrome' }, { name: 'Edge', channel: 'msedge' }] });
+    assert.strictEqual(found.renderer?.browser, renderer?.browser);
     await found.renderer?.close();
   });
 

@@ -20,7 +20,8 @@ jobs:
       fail-fast: false
       matrix:
         platform: [ubuntu-latest]
-        # “22” is the oldest supported Node.js version (package.json `engines`)
+        # “22” is the oldest supported Node.js version (package.json `engines`);
+        # it applies `--test-timeout` to whole test files, so keep each file well below 60 s
         node: ["22", "lts/*", "current"]
         include:
           # Windows: One LTS job is enough
