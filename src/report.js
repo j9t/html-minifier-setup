@@ -1,6 +1,6 @@
 import { presets as PRESETS } from 'html-minifier';
 import { VISIBLE_BY_DESIGN } from './catalog.js';
-import { paint } from './color.js';
+import { paint, strip } from './color.js';
 import { byMetric, METRICS, NAMES_METRIC } from './measure.js';
 import { MESSAGE_RENDERS_SAME } from './select.js';
 
@@ -26,6 +26,45 @@ const LABELS_STATUS = { 'accepted': 'recommended', 'kept': 'kept', 'rejected': '
 /** @param {string} status */
 const formatStatus = (status) => LABELS_STATUS[status] ?? status;
 
+/** @param {number} bytes */
+const formatBytes = (bytes) => `${bytes.toLocaleString('en-US')} B`;
+
+/**
+ * How much less an option saves alongside the other options, where it’s less than half of what
+ * it saves on its own, as the table shows that alone
+ * @param {import('./select.js').Evaluation} evaluation
+ * @returns {import('./select.js').Reason[]}
+ */
+const overlapOf = ({ contribution, savings }) => contribution !== undefined && contribution * 2 < savings
+  ? [{ level: 'info', message: `Saves ${contribution > 0 ? formatBytes(contribution) : 'nothing'} alongside the other options (${formatBytes(savings)} on its own)` }]
+  : [];
+
+/**
+ * The document mode a rejected option switches pages to, and how many it switches, where pages it
+ * switches look different
+ * @param {import('./select.js').Evaluation | undefined} evaluation
+ * @returns {{mode: string, count: number} | null}
+ */
+function modeSwitched(evaluation) {
+  if (evaluation?.status !== 'rejected') return null;
+  const pagesDiffering = new Set(evaluation.reasons.filter((reason) => reason.level === 'render').map((reason) => reason.page));
+  const switching = evaluation.reasons.filter((reason) => reason.mode);
+  const found = switching.find((reason) => pagesDiffering.has(reason.page));
+  return found?.mode ? { mode: found.mode, count: new Set(switching.map((reason) => reason.page)).size } : null;
+}
+
+// Statuses of options in the configuration, and of those left out for lack of gain
+const STATUSES_IN = ['accepted', 'kept'];
+const STATUSES_IDLE = ['in-effect', 'no-gain', 'no-effect', 'skipped'];
+
+/**
+ * @param {string} status
+ * @param {boolean} color
+ */
+const paintStatus = (status, color) => STATUSES_IN.includes(status)
+  ? paint('success', formatStatus(status), color)
+  : STATUSES_IDLE.includes(status) ? paint('dim', formatStatus(status), color) : formatStatus(status);
+
 /**
  * The result as an HTML Minifier configuration, sorted by option name
  * @param {import('./select.js').Result} result
@@ -43,7 +82,7 @@ export function toConfig(result, preserved = {}) {
  * Whether any option is recommended or kept, not counting carried options
  * @param {import('./select.js').Result} result
  */
-export const hasRecommendation = (result) => result.evaluations.some((evaluation) => evaluation.status === 'accepted' || evaluation.status === 'kept');
+export const hasRecommendation = (result) => result.evaluations.some((evaluation) => STATUSES_IN.includes(evaluation.status));
 
 /** @param {import('./select.js').Result} result */
 const inEffect = (result) => result.evaluations.filter((evaluation) => evaluation.status === 'in-effect').sort((a, b) => a.name.localeCompare(b.name));
@@ -142,9 +181,6 @@ export function toPresetConfig(result, preserved = {}) {
   return { name: nearest.name, changes: Object.keys(nearest.overrides).sort(), config: { $schema, preset: nearest.name, ...rest } };
 }
 
-/** @param {number} bytes */
-const formatBytes = (bytes) => `${bytes.toLocaleString('en-US')} B`;
-
 /**
  * @param {number} before
  * @param {number} after
@@ -168,6 +204,13 @@ function sharedDir(pages) {
   while (length < first.length && rest.every((segments) => segments[length] === first[length])) length++;
   return length ? `${first.slice(0, length).join('/')}/` : '';
 }
+
+/**
+ * Pages out of all, as “the page” and “both pages” where that’s all
+ * @param {number} count
+ * @param {number} total
+ */
+const pagesOf = (count, total) => total === 1 ? 'the page' : count === total ? total === 2 ? 'both pages' : `all ${total} pages` : `${count} of ${total} pages`;
 
 /** @param {string[]} items */
 const listShort = (items) => items.length > MAX_LISTED
@@ -222,11 +265,12 @@ function condenseReasons(reasons) {
 }
 
 /**
+ * Rows in columns, by the width cells show at, without escape codes
  * @param {string[][]} rows
  */
 function table(rows) {
-  const widths = rows[0]?.map((_, column) => Math.max(...rows.map((row) => (row[column] ?? '').length))) ?? [];
-  return rows.map((row) => row.map((cell, column) => column === row.length - 1 ? cell : cell.padEnd(widths[column] ?? 0)).join('  ').trimEnd()).join('\n');
+  const widths = Array.from({ length: Math.max(0, ...rows.map((row) => row.length)) }, (_, column) => Math.max(...rows.map((row) => strip(row[column] ?? '').length)));
+  return rows.map((row) => row.map((cell, column) => column === row.length - 1 ? cell : `${cell}${' '.repeat(Math.max(0, (widths[column] ?? 0) - strip(cell).length))}`).join('  ').trimEnd()).join('\n');
 }
 
 /**
@@ -240,11 +284,11 @@ export function formatReport(result, { renderReason = '', color = false, verbose
   const dirShared = sharedDir(result.pages);
   const evaluations = result.evaluations.map((evaluation) => ({
     ...evaluation,
-    reasons: evaluation.reasons.map((reason) => reason.page?.startsWith(dirShared) ? { ...reason, page: reason.page.slice(dirShared.length) } : reason)
-      .map((reason) => blocked.length && reason.message === MESSAGE_RENDERS_SAME ? { ...reason, message: `${reason.message}, but without files outside the site` } : reason)
+    reasons: [...evaluation.reasons.map((reason) => reason.page?.startsWith(dirShared) ? { ...reason, page: reason.page.slice(dirShared.length) } : reason)
+      .map((reason) => blocked.length && reason.message === MESSAGE_RENDERS_SAME ? { ...reason, message: `${reason.message}, but without files outside the site` } : reason), ...overlapOf(evaluation)]
   })).sort((a, b) =>
     ORDER_STATUS.indexOf(a.status) - ORDER_STATUS.indexOf(b.status) ||
-    (b.contribution ?? b.savings) - (a.contribution ?? a.savings) ||
+    b.savings - a.savings ||
     a.name.localeCompare(b.name));
 
   const renderedAs = `Render-checked in ${result.browser ?? 'Chromium'}${result.viewports.length ? ` at ${result.viewports.join(' and ')}` : ''}${allowShift ? `, allowing elements to move by up to ${allowShift} px` : ''}`;
@@ -253,7 +297,7 @@ export function formatReport(result, { renderReason = '', color = false, verbose
     : failed.length
       ? paint('warning', `${renderedAs}: The recommended configuration may not look the same as the original pages, as files didn’t load`, color)
       : result.renderedSame
-        ? `${renderedAs}: The recommended configuration looks the same as the original pages`
+        ? paint('success', `${renderedAs}: The recommended configuration looks the same as the original pages`, color)
         : paint('warning', `${renderedAs}: The recommended configuration may not look the same as the original pages (see notes)`, color);
   const lines = [
     `• Evaluated ${result.pagesFound ? `${result.pages.length} of ${result.pagesFound.toLocaleString('en-US')} pages` : `${result.pages.length} page${result.pages.length === 1 ? '' : 's'}`}${dirShared ? ` in ${dirShared}` : ''}${result.pagesFound ? ' (use `--sample` to evaluate more)' : ''}, judging gains by ${NAMES_METRIC[metric]} size`,
@@ -266,38 +310,48 @@ export function formatReport(result, { renderReason = '', color = false, verbose
     ...result.equivalence ? [`• Equivalence-checked with ${result.equivalence}`] : [],
     '',
     table([
-      ['Option', 'Status', 'Saves alone', 'Contributes', 'Variant'],
+      ['Option', 'Status', 'Saves'].map((heading) => paint('bold', heading, color)),
       ...evaluations.map((evaluation) => [
-        evaluation.name,
-        formatStatus(evaluation.status),
-        evaluation.status === 'skipped' ? '' : formatBytes(evaluation.savings),
-        evaluation.contribution === undefined ? '' : formatBytes(evaluation.contribution),
-        evaluation.variant ?? ''
+        `${evaluation.name}${evaluation.variant ? ` (${evaluation.variant})` : ''}`,
+        paintStatus(evaluation.status, color),
+        evaluation.status === 'skipped' ? '' : formatBytes(evaluation.savings)
       ])
     ]),
     '',
-    ...METRICS.map((m) => `${m === 'raw' ? 'Uncompressed' : NAMES_METRIC[m]}: ${formatChange(result.baseline[m], result.final[m], color)}`)
+    ...METRICS.map((m) => {
+      const label = `${m === 'raw' ? 'Uncompressed' : NAMES_METRIC[m]}:`;
+      return `${m === metric ? paint('bold', label, color) : label} ${formatChange(result.baseline[m], result.final[m], color)}`;
+    })
   ];
 
   if (result.presets.length) {
     const finalMetric = result.final[metric];
-    lines.push('', `Compared with HTML Minifier’s presets (${NAMES_METRIC[metric]}):`, table(result.presets.map((preset) => {
+    const [subject, label] = hasRecommendation(result) ? ['Recommended configuration', 'recommended'] : ['Pages without options', 'without options'];
+    lines.push('', paint('bold', `${subject} compared with HTML Minifier’s presets (${NAMES_METRIC[metric]}):`, color), table([[`  ${label}`, formatBytes(finalMetric)], ...result.presets.map((preset) => {
       const share = finalMetric ? (preset.size / finalMetric - 1) * 100 : 0;
       const size = preset.errors ? `fails on ${preset.errors} of ${result.pages.length}` : formatBytes(preset.size);
       const relative = preset.errors ? '' : Math.abs(share) < 0.05 ? 'same size' : `${Math.abs(share).toFixed(1)}% ${share > 0 ? 'larger' : 'smaller'}`;
       // Over the pages the preset could minify
       const checked = result.pages.length - preset.errors;
-      const ofPages = `of ${checked} page${checked === 1 ? '' : 's'}`;
       const rendering = preset.failing === null || !checked
         ? 'not render-checked'
         : preset.failing
-          ? paint('failure', `looks different on ${preset.failing} ${ofPages}${preset.shift ? ` (moves elements by up to ${preset.shift} px)` : ''}${preset.inconclusive ? `, inconclusive on ${preset.inconclusive}` : ''}`, color)
+          ? paint('failure', `looks different on ${pagesOf(preset.failing, checked)}${preset.shift ? ` (moves elements by up to ${preset.shift} px)` : ''}${preset.inconclusive ? `, inconclusive on ${preset.inconclusive}` : ''}`, color)
           : preset.inconclusive
-            ? `inconclusive on ${preset.inconclusive} ${ofPages}`
+            ? `inconclusive on ${pagesOf(preset.inconclusive, checked)}`
             : paint('success', preset.errors ? `looks the same on the other ${checked} page${checked === 1 ? '' : 's'}` : 'looks the same', color);
-      const rejected = preset.rejected.length ? `; includes ${paint('failure', preset.rejected.map((name) => `\`${name}\``).join(', '), color)}, which ${preset.rejected.length === 1 ? 'doesn’t' : 'don’t'} fit` : '';
+      /** @param {string[]} names */
+      const listNames = (names) => paint('failure', names.map((name) => `\`${name}\``).join(', '), color);
+      // Options switching modes are named for that, as their render differences come down to it
+      const switching = preset.rejected.map((name) => ({ name, switched: modeSwitched(evaluations.find((evaluation) => evaluation.name === name)) }));
+      const unfit = switching.filter(({ switched }) => !switched).map(({ name }) => name);
+      const parts = [
+        ...unfit.length ? [`${listNames(unfit)}, which ${unfit.length === 1 ? 'doesn’t' : 'don’t'} fit`] : [],
+        ...switching.flatMap(({ name, switched }) => switched ? [`${listNames([name])}, which switches ${pagesOf(switched.count, result.pages.length)} to ${switched.mode}`] : [])
+      ];
+      const rejected = parts.length ? `; includes ${parts.join(', and ')}` : '';
       return [`  ${preset.name}`, size, relative, `${rendering}${rejected}`];
-    })));
+    })]));
   }
 
   // Options that change nothing can’t be judged on minified pages, as minification
@@ -310,7 +364,7 @@ export function formatReport(result, { renderReason = '', color = false, verbose
 
   const explained = evaluations.filter((evaluation) => evaluation.status !== 'in-effect' && evaluation.reasons.some((reason) => reason.level !== 'info' || (evaluation.status !== 'no-gain' && evaluation.status !== 'no-effect')));
   if (explained.length) {
-    lines.push('', 'Details:');
+    lines.push('', paint('bold', 'Details:', color));
     let condensed = false;
     // Options with the same details are listed once, together, as where one cause affects several
     /** @type {Map<string, {names: string[], status: string, body: string[]}>} */
@@ -338,11 +392,11 @@ export function formatReport(result, { renderReason = '', color = false, verbose
       }
     }
     for (const { names, status, body } of groups.values()) lines.push(`  ${names.join(', ')} (${formatStatus(status)})`, ...body);
-    if (condensed) lines.push('  (Run with `-v` for every page and viewport)');
+    if (condensed) lines.push(`  ${paint('dim', '(Run with `-v` for every page and viewport)', color)}`);
   }
   if (result.notes.length) {
-    lines.push('', 'Notes:', ...result.notes.map((note) => `• ${note}`));
+    lines.push('', paint('bold', 'Notes:', color), ...result.notes.map((note) => `• ${note}`));
   }
-  lines.push('', `Checks can show that options change these pages, not that they never will${hasRecommendation(result) ? '—test the configuration on your site' : ''}.`);
+  lines.push('', paint('dim', `Checks can show that options change these pages, not that they never will${hasRecommendation(result) ? '—test the configuration on your site' : ''}.`, color));
   return lines.join('\n');
 }

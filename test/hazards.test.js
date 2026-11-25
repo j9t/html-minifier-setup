@@ -266,6 +266,7 @@ describe('`findHazards`', () => {
     const context = await analyze('<p>x');
     const quirks = findHazards('useShortDoctype', context, '<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN"><p>x', '<!doctype html><p>x');
     assert.match(levels(quirks, 'check')[0]?.message ?? '', /from quirks mode to standards mode/);
+    assert.strictEqual(levels(quirks, 'check')[0]?.mode, 'standards mode');
     const almost = findHazards('useShortDoctype', context, '<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN" "http://www.w3.org/TR/html4/loose.dtd"><p>x', '<!doctype html><p>x');
     assert.match(levels(almost, 'check')[0]?.message ?? '', /from almost standards mode to standards mode/);
     const strict = findHazards('useShortDoctype', context, '<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN" "http://www.w3.org/TR/html4/strict.dtd"><p>x', '<!doctype html><p>x');

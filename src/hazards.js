@@ -7,7 +7,7 @@ import { parse } from 'parse5';
 /**
  * `risk`: likely breaks the page; `check`: may break it, which a render check can settle;
  * `note`: can’t be ruled out
- * @typedef {{level: 'risk' | 'check' | 'note', message: string}} Hazard
+ * @typedef {{level: 'risk' | 'check' | 'note', message: string, mode?: string}} Hazard
  */
 
 /**
@@ -448,7 +448,8 @@ export function findHazards(name, context, before, after) {
   if (name === 'useShortDoctype') {
     const [modeBefore = '', modeAfter = ''] = [before, after].map((html) => String(parse(html).mode));
     if (modeBefore !== modeAfter) {
-      hazards.push({ level: 'check', message: `Switches the page from ${MODES[modeBefore] ?? modeBefore} to ${MODES[modeAfter] ?? modeAfter}, which can change layout` });
+      const mode = MODES[modeAfter] ?? modeAfter;
+      hazards.push({ level: 'check', message: `Switches the page from ${MODES[modeBefore] ?? modeBefore} to ${mode}, which can change layout`, mode });
     }
   }
 

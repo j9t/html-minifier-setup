@@ -15,6 +15,7 @@ import { minifyInWorkers } from './workers.js';
  * @prop {string} message
  * @prop {string} [page]
  * @prop {number} [shift] Pixels elements move by, where that is all the page’s render check found
+ * @prop {string} [mode] Document mode the page switches to
  */
 
 /**

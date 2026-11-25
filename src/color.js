@@ -13,5 +13,8 @@ const STYLES = { bold: '1', dim: '2', accent: '36', success: '32', warning: '33'
  */
 export const paint = (name, text, color) => color && text ? `${CSI}${STYLES[name]}m${text}${CSI}0m` : text;
 
+/** @param {string} text */
+export const strip = (text) => text.replace(new RegExp(`${ESC}\\[\\d+m`, 'g'), '');
+
 /** @param {{isTTY?: boolean}} stream */
 export const supportsColor = (stream) => Boolean(stream.isTTY) && !process.env.NO_COLOR && process.env.TERM !== 'dumb';
